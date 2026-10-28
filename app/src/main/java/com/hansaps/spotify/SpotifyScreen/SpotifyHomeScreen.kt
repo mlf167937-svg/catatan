@@ -72,8 +72,8 @@ fun SpotifyHomeScreen(
         }
         item {
             PlayerFeatureCard(
-                title = controller?.currentMediaMetadata?.title?.toString() ?: "Lesung Pipi",
-                artist = controller?.currentMediaMetadata?.artist?.toString() ?: "Raim Laode",
+                title = controller?.mediaMetadata?.title?.toString() ?: "Lesung Pipi",
+                artist = controller?.mediaMetadata?.artist?.toString() ?: "Raim Laode",
                 isPlaying = controller?.isPlaying == true,
                 positionMs = positionMs,
                 durationMs = durationMs,

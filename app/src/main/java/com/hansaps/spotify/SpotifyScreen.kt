@@ -202,8 +202,8 @@ private fun CompactPlayer(controller: MediaController?, isPlaying: Boolean, onTo
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = HansColors.Lime)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(controller.currentMediaMetadata.title?.toString() ?: "HansAps Player", color = HansColors.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                Text(controller.currentMediaMetadata.artist?.toString() ?: "Offline audio", color = HansColors.Muted, fontSize = 10.sp, maxLines = 1)
+                Text(controller.mediaMetadata.title?.toString() ?: "HansAps Player", color = HansColors.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(controller.mediaMetadata.artist?.toString() ?: "Offline audio", color = HansColors.Muted, fontSize = 10.sp, maxLines = 1)
             }
             TextButton(onClick = onToggle) { Text(if (isPlaying) "Pause" else "Play", color = HansColors.Lime, fontSize = 11.sp) }
             TextButton(onClick = onNext) { Text("Next", color = HansColors.Text, fontSize = 11.sp) }
