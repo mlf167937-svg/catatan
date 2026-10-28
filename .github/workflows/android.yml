@@ -1,0 +1,65 @@
+name: Build RexAps
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build APK
+        id: build
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug --stacktrace --refresh-dependencies 2>&1 | tee build.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Prepare APK
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p artifacts
+          cp app/build/outputs/apk/debug/app-debug.apk artifacts/RexAps.apk
+          cp build.log artifacts/build.log
+
+      - name: Prepare Build Log (Build Failed)
+        if: steps.build.outcome == 'failure'
+        run: |
+          mkdir -p artifacts
+          cp build.log artifacts/build.log
+
+      - name: Upload APK and Log
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RexAps-debug
+          path: artifacts/
+
+      - name: Upload Log Only (Build Failed)
+        if: always() && steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RexAps-build-log
+          path: artifacts/build.log
+
+      - name: Fail Workflow If Build Failed
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "Build gagal. Cek build.log untuk detail."
+          exit 1
