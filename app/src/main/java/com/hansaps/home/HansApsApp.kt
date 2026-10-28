@@ -11,7 +11,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.hansaps.core.AccountStore
 import com.hansaps.core.AppAccount
-import com.hansaps.core.PlaybackConnector
 import com.hansaps.core.UserRole
 import com.hansaps.spotify.SpotifyScreen
 import com.hansaps.youtube.YoutubeScreen
@@ -28,7 +27,6 @@ fun HansApsApp() {
 
     LaunchedEffect(Unit) {
         AccountStore.initialize(context.applicationContext)
-        PlaybackConnector.connect(context.applicationContext)
     }
 
     fun navigate(destination: AppPage) {
