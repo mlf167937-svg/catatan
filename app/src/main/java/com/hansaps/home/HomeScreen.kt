@@ -39,10 +39,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hansaps.R
 import com.hansaps.core.AppAccount
-import com.hansaps.core.HansApsTheme
 import com.hansaps.core.HansColors
+import com.hansaps.R
 import com.hansaps.core.HansWordmark
 import com.hansaps.core.InlineVideoBanner
 import com.hansaps.core.RolePill
@@ -86,12 +85,13 @@ fun HomeScreen(
         }
         Text("Ringkasan lokal belum terhubung ke backend akun.", color = HansColors.Muted, fontSize = 10.sp)
 
-        Box(Modifier.fillMaxWidth().height(216.dp).clip(RoundedCornerShape(24.dp))) {
+        Box(Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(24.dp))) {
             InlineVideoBanner(resourceId = R.raw.banner_vid, modifier = Modifier.fillMaxSize())
             Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color(0xDD090B0E), Color(0x22202020), Color.Transparent))))
             Column(Modifier.align(Alignment.BottomStart).padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("HANSAPS / PERSONAL MEDIA", color = HansColors.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                Text("Made for your\nlistening hours.", color = Color.White, fontSize = 24.sp, lineHeight = 27.sp, fontWeight = FontWeight.Bold)
+                Text("Everything you\nwant to play.", color = Color.White, fontSize = 24.sp, lineHeight = 27.sp, fontWeight = FontWeight.Bold)
+                Text("Music and video, in one space.", color = Color.White.copy(alpha = .76f), fontSize = 12.sp)
             }
             Surface(Modifier.align(Alignment.TopEnd).padding(14.dp), color = Color.Black.copy(alpha = 0.36f), shape = CircleShape) {
                 Text("V1.0", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)

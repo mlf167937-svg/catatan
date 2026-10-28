@@ -15,11 +15,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,7 +48,6 @@ import com.hansaps.core.LocalVideo
 @Composable
 fun YoutubeCollection(
     videos: List<LocalVideo>,
-    onImport: () -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -60,19 +56,9 @@ fun YoutubeCollection(
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Koleksi video", color = HansColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("Video impor dan video yang diunduh tersimpan di Download/HansAps/Youtube/.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+            Text("Video yang diunduh dari Nexray tersimpan di Download/HansAps/Youtube/.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onImport,
-                modifier = Modifier.weight(1f).height(47.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = HansColors.Coral, contentColor = Color.White),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Spacer(Modifier.size(6.dp))
-                Text("Impor video", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onRefresh) {
                 Icon(Icons.Rounded.Refresh, contentDescription = null, tint = HansColors.Muted)
                 Text("Refresh", color = HansColors.Muted, fontSize = 12.sp)
@@ -80,7 +66,7 @@ fun YoutubeCollection(
         }
         selectedVideo?.let { LocalVideoPlayer(it, onClose = { selectedVideo = null }) }
         if (videos.isEmpty()) {
-            EmptyState("Belum ada video", "Impor video yang kamu miliki atau simpan melalui provider yang berwenang. Koleksi bisa diputar tanpa internet.")
+            EmptyState("Belum ada video", "Cari video di tab Jelajahi lalu tekan Download. Video yang sudah tersimpan dapat diputar tanpa internet.")
         } else {
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 items(videos, key = { it.id }) { video ->

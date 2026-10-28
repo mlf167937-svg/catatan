@@ -44,8 +44,15 @@ object AccountStore {
         username: String,
         password: String,
         role: UserRole,
+        creatorRole: UserRole,
     ): Result<Unit> {
         initialize(context)
+        if (creatorRole == UserRole.USER) {
+            return Result.failure(IllegalArgumentException("Role ini tidak memiliki izin membuat akun."))
+        }
+        if (role == UserRole.DEVELOPER && creatorRole != UserRole.DEVELOPER) {
+            return Result.failure(IllegalArgumentException("Hanya Developer yang boleh membuat akun Developer."))
+        }
         val cleanName = username.trim()
         if (!cleanName.matches(Regex("[A-Za-z0-9_.-]{3,24}"))) {
             return Result.failure(IllegalArgumentException("Username 3–24 karakter; gunakan huruf, angka, titik, _ atau -."))

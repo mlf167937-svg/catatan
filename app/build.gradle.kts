@@ -12,8 +12,8 @@ android {
         applicationId = "com.hansaps"
         minSdk = 29
         targetSdk = 35
-        versionCode = 101
-        versionName = "1.01"
+        versionCode = 1
+        versionName = "1.0"
 
         vectorDrawables { useSupportLibrary = true }
     }

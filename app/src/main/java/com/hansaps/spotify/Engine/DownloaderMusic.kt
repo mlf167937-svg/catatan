@@ -18,7 +18,12 @@ data class AuthorizedAudioSource(
     val directAudioUrl: String,
     val thumbnailUrl: String? = null,
     val lyricsText: String? = null,
-    val sourceLabel: String = "authorized-provider",
+    val lyricsSynced: String? = null,
+    val lyricsPlain: String? = null,
+    val album: String = "",
+    val duration: String = "",
+    val releaseDate: String = "",
+    val sourceLabel: String = "Nexray API",
 )
 
 /**
@@ -60,6 +65,9 @@ class DownloaderMusic {
             val meta = JSONObject()
                 .put("title", source.title)
                 .put("artist", source.artist)
+                .put("album", source.album)
+                .put("duration", source.duration)
+                .put("releaseDate", source.releaseDate)
                 .put("source", source.sourceLabel)
                 .put("file", "music.mp3")
                 .put("thumbnail", if (source.thumbnailUrl != null) "thumbnail.jpg" else JSONObject.NULL)
@@ -69,7 +77,12 @@ class DownloaderMusic {
                 relativePath,
                 "lyrics.json",
                 "application/json",
-                JSONObject().put("lyrics", source.lyricsText ?: "").put("source", source.sourceLabel).toString(2),
+                JSONObject()
+                    .put("lyrics", source.lyricsText ?: "")
+                    .put("syncedLyrics", source.lyricsSynced ?: "")
+                    .put("plainLyrics", source.lyricsPlain ?: "")
+                    .put("source", source.sourceLabel)
+                    .toString(2),
             )
 
             source.thumbnailUrl?.takeIf { it.startsWith("https://", true) }?.let { coverUrl ->

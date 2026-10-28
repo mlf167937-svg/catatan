@@ -1,7 +1,5 @@
 package com.hansaps.spotify
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
@@ -55,7 +53,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 private enum class SpotifyTab(val label: String) {
-    HOME("Dengar"), PLAYLISTS("Playlist"), COLLECTION("Koleksi"), DOWNLOAD("Unduh")
+    HOME("Dengar"), PLAYLISTS("Playlist"), COLLECTION("Koleksi"), DOWNLOAD("Cari musik")
 }
 
 @Composable
@@ -64,6 +62,8 @@ fun SpotifyScreen(onBack: () -> Unit) {
     val vm: SpotifyViewModel = viewModel()
     val playlists by vm.playlists.collectAsState()
     val tracks by vm.localTracks.collectAsState()
+    val onlineResults by vm.searchResults.collectAsState()
+    val searching by vm.searching.collectAsState()
     val message by vm.message.collectAsState()
     val controller by PlaybackConnector.controller.collectAsState()
     var selectedTab by remember { mutableStateOf(SpotifyTab.HOME) }
@@ -83,10 +83,6 @@ fun SpotifyScreen(onBack: () -> Unit) {
             }
             delay(500)
         }
-    }
-
-    val importAudio = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.importAudio(context, uri)
     }
 
     Column(
@@ -151,7 +147,7 @@ fun SpotifyScreen(onBack: () -> Unit) {
                 onToggle = {
                     if (controller?.currentMediaItem != null) PlaybackConnector.playPause(context)
                     else if (tracks.isNotEmpty()) vm.playTrack(context, tracks.first())
-                    else vm.notify("Koleksi masih kosong. Impor audio di tab Koleksi terlebih dahulu.")
+                    else vm.notify("Cari lagu di tab Cari musik untuk streaming atau menyimpannya offline.")
                 },
                 onPrevious = {
                     if (controller?.currentMediaItem == null && tracks.isNotEmpty()) vm.playTrack(context, tracks.first())
@@ -175,16 +171,17 @@ fun SpotifyScreen(onBack: () -> Unit) {
             )
             SpotifyTab.COLLECTION -> SpotifyCollection(
                 tracks = tracks,
-                onImport = { importAudio.launch(arrayOf("audio/*")) },
                 onRefresh = { vm.refreshCollection(context) },
                 onPlay = { vm.playTrack(context, it) },
                 onQueue = { vm.addToQueue(context, it) },
                 modifier = Modifier.weight(1f),
             )
             SpotifyTab.DOWNLOAD -> SpotifyDownloaderScreen(
-                onDownload = { title, artist, audioUrl, thumbnailUrl, lyrics ->
-                    vm.downloadMusic(context, title, artist, audioUrl, thumbnailUrl, lyrics)
-                },
+                results = onlineResults,
+                searching = searching,
+                onSearch = vm::searchOnline,
+                onPlay = { vm.playOnlineTrack(context, it) },
+                onDownload = { vm.downloadOnlineTrack(context, it) },
                 modifier = Modifier.weight(1f),
             )
         }

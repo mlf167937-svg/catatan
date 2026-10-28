@@ -60,12 +60,15 @@ fun AccountManagementScreen(
     val context = LocalContext.current
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var role by remember { mutableStateOf(UserRole.USER) }
+    var role by remember(account.role) { mutableStateOf(UserRole.USER) }
     var roleMenuExpanded by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var accountVersion by remember { mutableStateOf(0) }
     val accounts = remember(accountVersion) { AccountStore.listAccounts(context) }
-
+    val allowedRoles = remember(account.role) {
+        if (account.role == UserRole.DEVELOPER) UserRole.entries
+        else UserRole.entries.filter { it != UserRole.DEVELOPER }
+    }
     Column(
         modifier = Modifier.fillMaxSize().background(HansColors.Background).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(17.dp),
@@ -76,7 +79,11 @@ fun AccountManagementScreen(
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(pageTitle, color = HansColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text("Akses lokal • ${account.username}", color = HansColors.Muted, fontSize = 12.sp)
+                Text(
+                    if (account.role == UserRole.DEVELOPER) "Akses Developer • dapat membuat semua role"
+                    else "Akses Owner • tidak dapat membuat role Developer",
+                    color = HansColors.Muted, fontSize = 12.sp
+                )
             }
             RolePill(account.role)
         }
@@ -117,7 +124,7 @@ fun AccountManagementScreen(
                     Text(role.label, color = HansColors.Text, fontWeight = FontWeight.Medium)
                     Text("Ubah ▾", color = accent, fontSize = 12.sp)
                     DropdownMenu(expanded = roleMenuExpanded, onDismissRequest = { roleMenuExpanded = false }) {
-                        UserRole.entries.forEach { option ->
+                        allowedRoles.forEach { option ->
                             DropdownMenuItem(
                                 text = { Text(option.label) },
                                 onClick = { role = option; roleMenuExpanded = false },
@@ -129,7 +136,7 @@ fun AccountManagementScreen(
             Spacer(Modifier.height(13.dp))
             Button(
                 onClick = {
-                    val result = AccountStore.createAccount(context, username, password, role)
+                    val result = AccountStore.createAccount(context, username, password, role, account.role)
                     message = result.fold(
                         onSuccess = {
                             username = ""

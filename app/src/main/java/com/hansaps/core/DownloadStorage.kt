@@ -1,19 +1,16 @@
 package com.hansaps.core
 
-import android.content.ContentResolver
 import android.content.ContentValues
 import android.content.Context
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
-import android.provider.OpenableColumns
 import org.json.JSONObject
 import java.io.InputStream
 import java.util.Locale
 
 /**
- * Writes owned/imported media into the public Download/HansAps tree using MediaStore's scoped-storage API.
+ * Writes downloaded media into the public Download/HansAps tree using MediaStore's scoped-storage API.
  * No MANAGE_EXTERNAL_STORAGE permission is required on supported Android versions.
  */
 object DownloadStorage {
@@ -136,65 +133,6 @@ object DownloadStorage {
         return result
     }
 
-    fun importAudio(context: Context, source: Uri): Result<LocalTrack> = runCatching {
-        val metadata = readMediaMetadata(context, source, isVideo = false)
-        val fallbackName = getDisplayName(context.contentResolver, source).substringBeforeLast('.')
-        val title = metadata.title?.takeIf { it.isNotBlank() } ?: fallbackName
-        val artist = metadata.artist?.takeIf { it.isNotBlank() } ?: "Imported"
-        val folderName = "$artist-$title"
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "music.mp3")
-            put(MediaStore.MediaColumns.MIME_TYPE, "audio/mpeg")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, relativeFolder("Spotify", folderName))
-            put(MediaStore.Audio.Media.TITLE, title)
-            put(MediaStore.Audio.Media.ARTIST, artist)
-            put(MediaStore.Audio.Media.DURATION, metadata.durationMs)
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val outputUri = requireNotNull(context.contentResolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)) {
-            "Tidak bisa membuat file musik di Download/HansAps."
-        }
-        try {
-            copyUri(context, source, outputUri)
-            finishPending(context, outputUri)
-        } catch (t: Throwable) {
-            deletePending(context, outputUri)
-            throw t
-        }
-        writeText(context, relativeFolder("Spotify", folderName), "meta.json", "application/json", JSONObject()
-            .put("title", title).put("artist", artist).put("durationMs", metadata.durationMs)
-            .put("source", "imported-local").toString(2))
-        LocalTrack(outputUri.lastPathSegment ?: title, title, artist, outputUri, metadata.durationMs, "music.mp3")
-    }
-
-    fun importVideo(context: Context, source: Uri, titleInput: String? = null): Result<LocalVideo> = runCatching {
-        val metadata = readMediaMetadata(context, source, isVideo = true)
-        val fallbackName = getDisplayName(context.contentResolver, source).substringBeforeLast('.')
-        val title = titleInput?.takeIf { it.isNotBlank() } ?: metadata.title?.takeIf { it.isNotBlank() } ?: fallbackName
-        val folder = relativeFolder("Youtube", title)
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "video.mp4")
-            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, folder)
-            put(MediaStore.Video.Media.TITLE, title)
-            put(MediaStore.Video.Media.DURATION, metadata.durationMs)
-            put(MediaStore.MediaColumns.IS_PENDING, 1)
-        }
-        val outputUri = requireNotNull(context.contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)) {
-            "Tidak bisa membuat file video di Download/HansAps."
-        }
-        try {
-            copyUri(context, source, outputUri)
-            finishPending(context, outputUri)
-        } catch (t: Throwable) {
-            deletePending(context, outputUri)
-            throw t
-        }
-        writeText(context, folder, "meta.json", "application/json", JSONObject()
-            .put("title", title).put("durationMs", metadata.durationMs).put("source", "imported-local").toString(2))
-        LocalVideo(outputUri.lastPathSegment ?: title, title, outputUri, metadata.durationMs, "video.mp4")
-    }
-
     fun createPendingFile(
         context: Context,
         kind: Kind,
@@ -228,11 +166,6 @@ object DownloadStorage {
         runCatching { context.contentResolver.delete(uri, null, null) }
     }
 
-    fun copyUri(context: Context, source: Uri, destination: Uri) {
-        val input = requireNotNull(context.contentResolver.openInputStream(source)) { "File sumber tidak dapat dibaca." }
-        input.use { copyStream(context, destination, it) }
-    }
-
     fun copyStream(context: Context, destination: Uri, input: InputStream) {
         val output = requireNotNull(context.contentResolver.openOutputStream(destination, "w")) { "Tujuan penyimpanan tidak dapat dibuka." }
         output.use { out -> input.copyTo(out, 128 * 1024) }
@@ -250,28 +183,4 @@ object DownloadStorage {
         return uri
     }
 
-    fun getDisplayName(resolver: ContentResolver, uri: Uri): String {
-        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) cursor.getString(index)?.let { return it }
-            }
-        }
-        return uri.lastPathSegment ?: "media"
-    }
-
-    private data class ReadMetadata(val title: String?, val artist: String?, val durationMs: Long)
-
-    private fun readMediaMetadata(context: Context, uri: Uri, isVideo: Boolean): ReadMetadata {
-        return runCatching {
-            MediaMetadataRetriever().use { retriever ->
-                retriever.setDataSource(context, uri)
-                ReadMetadata(
-                    title = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE),
-                    artist = if (isVideo) null else retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST),
-                    durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L,
-                )
-            }
-        }.getOrDefault(ReadMetadata(null, null, 0L))
-    }
 }

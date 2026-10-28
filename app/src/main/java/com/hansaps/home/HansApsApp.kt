@@ -23,6 +23,7 @@ fun HansApsApp() {
     val context = LocalContext.current
     var account by remember { mutableStateOf<AppAccount?>(null) }
     var loginError by remember { mutableStateOf<String?>(null) }
+    var showPostLoginIntro by remember { mutableStateOf(false) }
     val history = remember { mutableStateListOf(AppPage.HOME) }
 
     LaunchedEffect(Unit) {
@@ -52,11 +53,17 @@ fun HansApsApp() {
                 else {
                     account = found
                     loginError = null
+                    showPostLoginIntro = true
                     history.clear()
                     history.add(AppPage.HOME)
                 }
             },
         )
+        return
+    }
+
+    if (showPostLoginIntro) {
+        LoginIntroScreen(onFinished = { showPostLoginIntro = false })
         return
     }
 
@@ -69,6 +76,7 @@ fun HansApsApp() {
             onOpenOwner = { if (signedIn.role == UserRole.OWNER) navigate(AppPage.OWNER) },
             onLogout = {
                 account = null
+                showPostLoginIntro = false
                 history.clear()
                 history.add(AppPage.HOME)
             },

@@ -46,10 +46,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hansaps.R
 import com.hansaps.core.HansColors
 import com.hansaps.core.HansWordmark
-import com.hansaps.core.InlineVideoBanner
 
 @Composable
 fun LoginScreen(
@@ -74,12 +72,12 @@ fun LoginScreen(
                 Text("Ruang pribadimu.", color = HansColors.Text, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
                 Text("Musik, video, dan koleksi dalam satu tempat.", color = HansColors.Muted, fontSize = 14.sp)
             }
-            Box(Modifier.fillMaxWidth().height(134.dp).clip(RoundedCornerShape(22.dp))) {
-                InlineVideoBanner(resourceId = R.raw.intro, modifier = Modifier.fillMaxSize())
-                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent))))
+            Box(Modifier.fillMaxWidth().height(134.dp).clip(RoundedCornerShape(22.dp)).background(Brush.linearGradient(listOf(Color(0xFF29351E), Color(0xFF141915), Color(0xFF36211F))))) {
+                Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.2f), Color.Transparent))))
                 Column(Modifier.align(Alignment.BottomStart).padding(15.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("HANSAPS V1", color = HansColors.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
-                    Text("Built for your own rhythm.", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Your own media space.", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Private. Personal. Always yours.", color = Color.White.copy(alpha = .72f), fontSize = 11.sp)
                 }
             }
             Surface(color = HansColors.Surface, shape = RoundedCornerShape(24.dp), border = androidx.compose.foundation.BorderStroke(1.dp, HansColors.Border)) {

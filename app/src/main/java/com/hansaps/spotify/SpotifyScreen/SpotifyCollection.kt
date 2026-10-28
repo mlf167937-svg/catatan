@@ -13,10 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,7 +33,6 @@ import com.hansaps.spotify.SpotifyScreen.TrackRow
 @Composable
 fun SpotifyCollection(
     tracks: List<LocalTrack>,
-    onImport: () -> Unit,
     onRefresh: () -> Unit,
     onPlay: (LocalTrack) -> Unit,
     onQueue: (LocalTrack) -> Unit,
@@ -45,20 +41,10 @@ fun SpotifyCollection(
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(13.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Koleksi musik", color = HansColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("File lokal disimpan di Download/HansAps/Spotify/.", color = HansColors.Muted, fontSize = 12.sp)
+            Text("Musik hasil download Nexray tersimpan untuk diputar tanpa internet.", color = HansColors.Muted, fontSize = 12.sp)
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            Button(
-                onClick = onImport,
-                modifier = Modifier.weight(1f).height(47.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = HansColors.Lime, contentColor = Color(0xFF15190D)),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Spacer(Modifier.size(6.dp))
-                Text("Impor audio", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-            TextButton(onClick = onRefresh, modifier = Modifier.height(47.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = onRefresh, modifier = Modifier.height(42.dp)) {
                 Icon(Icons.Rounded.Refresh, contentDescription = "Segarkan", tint = HansColors.Muted)
                 Text("Refresh", color = HansColors.Muted, fontSize = 12.sp)
             }
@@ -67,7 +53,7 @@ fun SpotifyCollection(
         if (tracks.isEmpty()) {
             EmptyState(
                 title = "Koleksi masih kosong",
-                detail = "Impor file musik milikmu untuk memutarnya offline. Metadata dasar akan disimpan bersama file.",
+                detail = "Buka tab Cari musik, temukan lagu melalui Nexray, lalu tekan Download agar tersedia offline.",
             )
         } else {
             LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -81,6 +67,5 @@ fun SpotifyCollection(
                 }
             }
         }
-        Text("Audio yang diimpor tidak diunggah ke server.", color = HansColors.Muted, fontSize = 10.sp)
     }
 }

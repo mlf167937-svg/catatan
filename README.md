@@ -1,6 +1,6 @@
 # HansAps V1 — Android / Kotlin Compose
 
-HansAps V1 is a native Android project based on the Gradle configuration supplied for RexAps, renamed to:
+HansAps V1 is a native Android project based on the Gradle configuration supplied for RexAps.
 
 - **Project:** `HansAps`
 - **Namespace / application ID:** `com.hansaps`
@@ -11,12 +11,12 @@ HansAps V1 is a native Android project based on the Gradle configuration supplie
 
 ## Open the project
 
-1. Extract `HansAps-V1-Source.zip`.
+1. Extract `HansAps-V1-Nexray-Fixed.zip`.
 2. Open the extracted `HansAps` folder in Android Studio.
 3. Install Android SDK Platform 35 and use JDK 17 if Studio prompts you.
 4. Let Gradle sync, then run the `app` configuration or use `./gradlew :app:assembleDebug`.
 
-The environment used to assemble this source archive did not have an Android SDK installed, so an APK has not been built or device-tested here.
+An Android build and device test have **not** been completed in the editing environment because Gradle 8.11.1 could not be downloaded from `services.gradle.org` (DNS/network unavailable). The source was statically inspected, but this archive must still be built and tested in Android Studio.
 
 ## Initial accounts
 
@@ -25,28 +25,37 @@ The environment used to assemble this source archive did not have an Android SDK
 | `Rex` | `RexStudio1@` | Developer |
 | `Han` | `han123@@` | Owner |
 
-There is no public registration screen. The Developer and Owner consoles can create additional local accounts and set their role. Passwords for stored accounts are PBKDF2-HMAC-SHA256 hashes with per-account salts, not plain text, but this is still a **local prototype**: users with access to the device/app data may tamper with local state. For production, move authentication and role authorization to a trusted server and use a password KDF such as Argon2id or scrypt.
+There is no public registration screen. Developer can create accounts of any available role, including Developer. Owner can create other roles, but cannot assign Developer. Account checks are enforced in the UI and in `AccountStore`. Passwords are stored as PBKDF2-HMAC-SHA256 hashes with per-account salts.
 
-## Included V1 features
+**Security note:** account data and authorization are local to this installation. Treat this as a prototype, not a production authentication system. Production authorization should be enforced by a trusted backend.
 
-- Premium-simple dark UI with HansAps lime accent and the warm red/orange music player card inspired by the supplied screenshot.
-- Intro video on the login screen and looping banner video on Home.
-- Login with the two initial accounts, role labels, logout, Developer console and Owner console.
-- Account creation from both consoles.
-- Spotify-style Home, `Playlist.ini` parser, local collection, queue model, import audio, direct authorized-audio downloader, metadata JSON, lyrics JSON and optional thumbnail.
-- YouTube-style provider response parser, selectable quality options, download of a direct authorized media URL, local video import, offline video collection and in-app playback.
-- Files written under the public Downloads tree using scoped storage/MediaStore, without requesting `MANAGE_EXTERNAL_STORAGE`.
-- Media3 session for Android playback notification/lock-screen controls, and in-app player controls resembling the supplied reference.
+## Nexray endpoints from the original HTML
 
-## Media resources
+The routes below were read directly from the HTML's JavaScript API constants:
 
-`app/src/main/res/raw/intro.mp4` was extracted from the HTML's Base64 video source.
+- Spotify search: `https://api.nexray.eu.cc/search/spotify?q=`
+- Spotify audio resolver: `https://api.nexray.eu.cc/downloader/spotify?url=`
+- Lyrics: `https://api.nexray.eu.cc/search/lyrics?q=`
+- YouTube search: `https://api.nexray.eu.cc/search/youtube?q=`
+- YouTube media/quality resolver: `https://api.nexray.eu.cc/downloader/aio?url=`
 
-The banner video is stored as `app/src/main/res/raw/banner_vid.mp4`. Android resource filenames must use lowercase letters, numbers and underscores; `BannerVid.mp4` would fail resource compilation, so the source name is normalized to `banner_vid.mp4` and is referenced as `R.raw.banner_vid`.
+The app uses these endpoints directly through `core/NexrayApi.kt`:
 
-## Playlist configuration
+- Spotify search results are presented in the **Cari musik** screen. Play resolves the audio URL through Nexray; Download resolves audio, fetches lyrics when available, and stores metadata and thumbnail when available.
+- Playlist items first match against the offline collection. If a match is not found, the app searches Nexray for the track and attempts online playback.
+- YouTube results are shown in **Jelajahi**. Selecting a video asks the downloader endpoint for media formats and shows the available MP4 quality options returned by the API.
+- The current offline YouTube implementation downloads a returned MP4 format only when it appears to include merged audio. Separate adaptive video and audio tracks are **not muxed** into one MP4 in this V1 build.
 
-Edit `app/src/main/assets/Playlist.ini`. Use one section per playlist; each song is `Artist - Title`:
+The endpoint names and response field handling follow the original HTML. Live service availability and the API's current response schema have not been independently verified in this environment; errors from the service are shown in the UI.
+
+## Intro and banner videos
+
+- `app/src/main/res/raw/intro.mp4` plays fullscreen **once after login succeeds**. It is not used as the login or Home banner. The video can be skipped.
+- `app/src/main/res/raw/banner_vid.mp4` is the separate looping Home banner. Android resource names must be lowercase with underscores; `BannerVid.mp4` would fail resource compilation, so the file is named `banner_vid.mp4` and referenced as `R.raw.banner_vid`.
+
+## Spotify playlists
+
+Edit `app/src/main/assets/Playlist.ini`. Each section defines a playlist, and each line uses `Artist - Title`:
 
 ```ini
 [Playlist Populer]
@@ -58,11 +67,11 @@ Sal Priadi - Id like to watching you sleep
 Nadifh Basalamah - Bergema Sampai Selamanya
 ```
 
-When a playlist item is played, the app looks for a matching track in its offline collection first. If the song is not local, V1 explains that no online music provider is configured. It does not scrape Spotify or bypass DRM. `DownloaderMusic` accepts a direct HTTPS URL from a provider authorized to distribute that audio.
+The app checks the local collection first and resolves missing playlist tracks through Nexray. Spotify search/download UI has no manual import controls.
 
 ## Download folder layout
 
-The app writes to the Android shared `Download/HansAps/` tree via MediaStore:
+The app uses Android MediaStore/scoped storage and writes inside the shared `Download/HansAps/` tree without requesting `MANAGE_EXTERNAL_STORAGE`:
 
 ```text
 Download/HansAps/
@@ -79,35 +88,14 @@ Download/HansAps/
         └── meta.json
 ```
 
-On Android 10+, the app uses scoped storage via MediaStore instead of direct filesystem writes. Files remain visible under the public Downloads location. V1 only scans content stored under these HansAps folders into its offline collections.
+The offline collection scans items in these HansAps folders. There are no manual import buttons for songs or videos.
 
-## YouTube provider response format
+## Implemented structure
 
-The YouTube screen currently accepts a JSON response from a trusted provider. The exact external API endpoint was not included in the request, so no specific third-party API has been hard-coded. The response should be shaped like this:
+- `home/`: login, post-login intro video, Home dashboard, Developer and Owner consoles.
+- `spotify/`: Spotify-style home, playlists, offline collection, Nexray search and music playback/download view models.
+- `spotify/Engine/`: music downloader and playback queue logic.
+- `youtube/`: Nexray search, selectable API quality, offline collection and online preview.
+- `core/`: Nexray API client, models, account store, MediaStore saving, Media3 playback/session and shared UI components.
 
-```json
-{
-  "title": "My own video",
-  "videoId": "my-video-id",
-  "thumbnailUrl": "https://cdn.example.com/thumb.jpg",
-  "formats": [
-    {
-      "label": "720p MP4",
-      "quality": "720p",
-      "mimeType": "video/mp4",
-      "url": "https://cdn.example.com/my-video.mp4",
-      "fileSizeBytes": 24000000,
-      "downloadable": true,
-      "license": "authorized"
-    }
-  ]
-}
-```
-
-The parser only accepts an HTTPS **direct media URL** when the provider explicitly marks the format `downloadable: true` and `license` as `authorized` or `owned`. This is an adapter contract, not a built-in YouTube stream extractor. Use a provider that is allowed to distribute the requested media. Official YouTube Data API responses provide catalog metadata, not a general video-file download URL.
-
-## Notes / not yet connected
-
-- No external music or video provider credentials/API URL were supplied. Therefore live catalog search and provider-side resolution are not falsely represented as working. The downloader engine and response contract are included; connect an authorized provider adapter when its API details are available.
-- Balance/credit/breached cards remain zero-value dashboard placeholders because the HTML's account/wallet/backend semantics are not provided as a native API contract.
-- The source HTML includes additional wallet, store, status/chat/inbox, and admin workflows. This V1 prioritizes the requested native media app and role-based account UI; those web-only business flows have not been migrated into production-backed Kotlin features.
+Other original HTML features such as wallet/balance, breached counter, chat and inbox are not fully connected to a production backend in this V1. They should not be treated as production-backed features.
