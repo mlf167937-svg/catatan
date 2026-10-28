@@ -490,7 +490,7 @@ object SpotifySyncEngine {
     private fun broadcastMembers() {
         val names = JSONArray(mutableState.value.members)
         val message = JSONObject().put("type", "members").put("items", names)
-        peers.values.forEach { runCatching { it.send(message) }.onFailure { it.close() } }
+        peers.values.forEach { peer -> runCatching { peer.send(message) }.onFailure { peer.close() } }
     }
 
     private fun safeFilePart(value: String): String = value.replace(Regex("[^a-zA-Z0-9_-]"), "_").take(80).ifBlank { "track" }
