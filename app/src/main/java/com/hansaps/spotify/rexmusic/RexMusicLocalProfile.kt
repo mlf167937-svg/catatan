@@ -1,6 +1,11 @@
 package com.hansaps.spotify.rexmusic
 
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
+import android.util.Base64
+import java.io.ByteArrayOutputStream
 import android.os.Environment
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -37,11 +42,13 @@ import java.io.File
 
 /** Snapshot of the same Local Account JSON file used by HansAps. */
 internal data class RexLocalProfileSnapshot(
-    val name: String = "Rex User",
-    val username: String = "@rexuser",
+    val name: String = "HansAps User",
+    val username: String = "@hansuser",
     val bio: String = "Halo! Aku menggunakan HansAps.",
     val picturePath: String = "",
-    val pictureVideo: String = ""
+    val pictureVideo: String = "",
+    val bannerPath: String = "",
+    val bannerVideo: String = ""
 )
 
 internal object RexLocalProfileBridge {
@@ -53,18 +60,102 @@ internal object RexLocalProfileBridge {
         "account.json"
     )
 
-    fun read(): RexLocalProfileSnapshot = runCatching {
-        val file = configFile()
-        if (!file.isFile) return@runCatching RexLocalProfileSnapshot()
-        val json = JSONObject(file.readText())
-        RexLocalProfileSnapshot(
-            name = json.optString("name", "Rex User").trim().ifBlank { "Rex User" },
-            username = json.optString("username", "@rexuser").trim().ifBlank { "@rexuser" },
-            bio = json.optString("bio", "").trim(),
-            picturePath = json.optString("profilePicture", "").trim(),
-            pictureVideo = json.optString("profileVideo", "").trim()
+    fun read(): RexLocalProfileSnapshot {
+        val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val candidates = listOf(
+            File(File(downloads, "HansAps/.config"), "account.json"),
+            // Compatibility fallback when both APKs are installed on the same Android device.
+            File(File(downloads, "RexAps/.config"), "account.json")
         )
-    }.getOrDefault(RexLocalProfileSnapshot())
+        for (file in candidates) {
+            val profile = runCatching {
+                if (!file.isFile) return@runCatching null
+                val json = JSONObject(file.readText())
+                val name = json.optString("name", "").trim()
+                if (name.isBlank() && file == candidates.first()) return@runCatching null
+                RexLocalProfileSnapshot(
+                    name = name.ifBlank { "HansAps User" },
+                    username = json.optString("username", "@hansuser").trim().ifBlank { "@hansuser" },
+                    bio = json.optString("bio", "").trim(),
+                    picturePath = json.optString("profilePicture", "").trim(),
+                    pictureVideo = json.optString("profileVideo", "").trim(),
+                    bannerPath = json.optString("banner", "").trim(),
+                    bannerVideo = json.optString("bannerVideo", "").trim()
+                )
+            }.getOrNull()
+            if (profile != null) return profile
+        }
+        return RexLocalProfileSnapshot()
+    }
+}
+
+/**
+ * Encode small, device-portable previews of the local account avatar and banner for Sync.
+ * Images are downscaled before Base64 encoding so the JSON control message stays bounded.
+ * If the account uses a video instead of a still image, the first video frame is used.
+ */
+internal fun RexLocalProfileBridge.encodeProfileAssets(profile: RexLocalProfileSnapshot): Pair<String, String> =
+    encodeAsset(profile.picturePath, profile.pictureVideo, 360) to
+        encodeAsset(profile.bannerPath, profile.bannerVideo, 960)
+
+private fun RexLocalProfileBridge.encodeAsset(stillPath: String, videoPath: String, maxDimension: Int): String = runCatching {
+    val context = RexMusicSyncEngine.appContextRef ?: return@runCatching ""
+    val video = stillPath.isBlank() && videoPath.isNotBlank()
+    val source = if (video) videoPath else stillPath
+    if (source.isBlank()) return@runCatching ""
+    val bitmap = (if (video) {
+        val retriever = MediaMetadataRetriever()
+        try {
+            val file = profileFile(source)
+            if (file != null && file.isFile) retriever.setDataSource(file.absolutePath)
+            else if (source.startsWith("content://")) retriever.setDataSource(context, Uri.parse(source))
+            else return@runCatching ""
+            retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        } finally { runCatching { retriever.release() } }
+    } else {
+        val file = profileFile(source)
+        if (file != null && file.isFile) BitmapFactory.decodeFile(file.absolutePath)
+        else if (source.startsWith("content://")) context.contentResolver.openInputStream(Uri.parse(source))?.use { BitmapFactory.decodeStream(it) }
+        else null
+    }) ?: return@runCatching ""
+    val longest = maxOf(bitmap.width, bitmap.height).coerceAtLeast(1)
+    val scale = minOf(1f, maxDimension.toFloat() / longest.toFloat())
+    val scaled = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1), (bitmap.height * scale).toInt().coerceAtLeast(1), true) else bitmap
+    val bytes = ByteArrayOutputStream().use { output ->
+        scaled.compress(Bitmap.CompressFormat.JPEG, 78, output)
+        output.toByteArray()
+    }
+    if (scaled !== bitmap) scaled.recycle()
+    bitmap.recycle()
+    Base64.encodeToString(bytes, Base64.NO_WRAP)
+}.getOrDefault("")
+
+private fun profileFile(path: String): File? = runCatching {
+    val uri = Uri.parse(path)
+    when {
+        uri.scheme == "file" -> uri.path?.let(::File)
+        uri.scheme == null -> File(path)
+        else -> null
+    }
+}.getOrNull()
+
+/** Persist an incoming preview in app-private cache; remote absolute paths are never trusted. */
+internal fun RexLocalProfileBridge.saveSyncedProfileAssets(id: String, pictureData: String, bannerData: String): Pair<String, String> {
+    val context = RexMusicSyncEngine.appContextRef ?: return "" to ""
+    val safeId = id.replace(Regex("[^A-Za-z0-9_-]"), "_").take(80).ifBlank { "member" }
+    val folder = File(context.cacheDir, "syncProfiles/$safeId")
+    return runCatching {
+        folder.mkdirs()
+        fun save(data: String, name: String): String {
+            if (data.isBlank()) return ""
+            val bytes = Base64.decode(data, Base64.DEFAULT)
+            if (bytes.size > 2_500_000) return ""
+            val file = File(folder, name)
+            file.writeBytes(bytes)
+            file.absolutePath
+        }
+        save(pictureData, "avatar.jpg") to save(bannerData, "banner.jpg")
+    }.getOrDefault("" to "")
 }
 
 /** One shared event per RexMusic composition; tab headers use this to open the profile sheet. */

@@ -104,47 +104,95 @@ internal fun __splitImpl_SyncPlaybackCard(
 }
 
 internal fun RexMusicSyncEngine.__splitImpl_playTrack(track: RexTrack) {
-        if (!_state.value.hosting) return
-        val local = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == track.id }
-        if (local == null) { _state.value = _state.value.copy(error = "Pilih lagu yang sudah tersedia offline di HP host."); return }
-        hostTrack = local.track
-        playAnchorPositionMs = 0L
-        hostPreparing = true
-        hostPlaying = false
-        _state.value = _state.value.copy(trackId = track.id, trackTitle = track.title, positionMs = 0L, playing = false, status = "Menyiapkan semua perangkat…", error = null)
-        playbackJob?.cancel()
-        playbackJob = scope.launch {
-            // Prepare the host player before announcing the future start; do not play early.
-            withContext(Dispatchers.Main) { RexPlayerController.prepareFromOfflineForSync(local.track) }
-            val deadline = SystemClock.elapsedRealtime() + 15000L
-            while (isActive && SystemClock.elapsedRealtime() < deadline) {
-                val s = RexPlayerController.state.value
-                if (s.nowPlaying?.id == local.track.id && s.durationMs > 0L && s.phase == LoadPhase.Idle) break
-                delay(40L)
-            }
-            val ready = RexPlayerController.state.value
-            if (ready.nowPlaying?.id != local.track.id || ready.durationMs <= 0L) {
-                hostPreparing = false
-                hostPlaying = false
-                _state.value = _state.value.copy(playing = false, status = "Lagu gagal disiapkan", error = "Player tidak siap sebelum batas waktu.")
-                broadcastState()
-                return@launch
-            }
-            hostPreparing = false
-            hostPlaying = true
-            playAnchorWallMs = SystemClock.elapsedRealtime() + START_LEAD_MS
-            _state.value = _state.value.copy(playing = true, status = "Mulai serentak · room clock")
-            broadcastState()
-            delay(max(0L, playAnchorWallMs - SystemClock.elapsedRealtime()))
-            withContext(Dispatchers.Main) { RexPlayerController.startSyncPlayback(0L) }
-        }
+    if (!_state.value.hosting) return
+    // Hybrid lookup accepts a HansAps download, a RexAps/Music entry, or a title/artist match.
+    val local = RexOfflineManager.findEntry(track)
+    if (local == null) {
+        _state.value = _state.value.copy(
+            error = "Lagu belum tersedia di Download/HansAps/Spotify atau Download/RexAps/Music.",
+            cacheStatus = "Unduh lagu atau beri izin akses semua file."
+        )
+        return
     }
+    val resolvedTrack = local.track
+    hostTrack = resolvedTrack
+    playAnchorPositionMs = 0L
+    hostPreparing = true
+    hostPlaying = false
+    _state.value = _state.value.copy(
+        trackId = resolvedTrack.id,
+        trackTitle = resolvedTrack.title,
+        positionMs = 0L,
+        playing = false,
+        status = "Menyiapkan audio dan hybrid sync…",
+        cacheStatus = "Memeriksa file lokal untuk anggota room…",
+        error = null
+    )
+    playbackJob?.cancel()
+    playbackJob = scope.launch {
+        // Send the actual audio bundle before broadcasting playback state. This is the missing
+        // step that previously left other devices with a track ID but no playable local MP3.
+        val targets = peers.toList()
+        if (targets.isNotEmpty()) {
+            val results = coroutineScope {
+                targets.map { peer -> async { peer to sendBundle(peer.ip, resolvedTrack) } }.awaitAll()
+            }
+            results.forEach { (peer, ok) ->
+                if (ok) peer.sentTrackId = resolvedTrack.id
+            }
+            val failed = results.filterNot { it.second }.map { it.first.name }
+            _state.value = _state.value.copy(
+                cacheStatus = if (failed.isEmpty()) "File siap di ${targets.size} perangkat" else "Transfer gagal: ${failed.joinToString()}",
+                error = if (failed.isEmpty()) null else "Sebagian perangkat tidak menerima file. Periksa izin penyimpanan dan koneksi Wi-Fi."
+            )
+        }
+        if (!isActive || hostTrack?.id != resolvedTrack.id) return@launch
+
+        withContext(Dispatchers.Main) { RexPlayerController.prepareFromOfflineForSync(resolvedTrack) }
+        val deadline = SystemClock.elapsedRealtime() + 15000L
+        while (isActive && SystemClock.elapsedRealtime() < deadline) {
+            val state = RexPlayerController.state.value
+            if (state.nowPlaying?.id == resolvedTrack.id && state.durationMs > 0L && state.phase == LoadPhase.Idle) break
+            delay(40L)
+        }
+        val ready = RexPlayerController.state.value
+        if (ready.nowPlaying?.id != resolvedTrack.id || ready.durationMs <= 0L) {
+            hostPreparing = false
+            hostPlaying = false
+            _state.value = _state.value.copy(playing = false, status = "Lagu gagal disiapkan", error = "Player tidak siap sebelum batas waktu.")
+            broadcastState()
+            return@launch
+        }
+        hostPreparing = false
+        hostPlaying = true
+        playAnchorWallMs = SystemClock.elapsedRealtime() + START_LEAD_MS
+        _state.value = _state.value.copy(playing = true, status = "Mulai serentak · hybrid room sync")
+        broadcastState()
+        delay(max(0L, playAnchorWallMs - SystemClock.elapsedRealtime()))
+        withContext(Dispatchers.Main) { RexPlayerController.startSyncPlayback(0L) }
+    }
+}
 
 internal suspend fun RexMusicSyncEngine.__splitImpl_syncLocalTrack(id: String, pos: Long, playing: Boolean, startAt: Long) {
         RexPlayerController.init(appContextRef ?: return)
         val track = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == id }?.track
         if (track == null) {
-            _state.value = _state.value.copy(status = "Lagu belum ada di HP ini", error = "Lagu '$id' belum diterima atau belum terindeks di library offline; tunggu transfer cache selesai.")
+            runCatching {
+                clientWriter?.let { writer ->
+                    send(writer, org.json.JSONObject().put("type", "request_bundle").put("trackId", id))
+                }
+            }
+            _state.value = _state.value.copy(status = "Menunggu file dari host…", error = "Lagu '$id' belum ada di ${RexOfflineManager.DISPLAY_PATH}; meminta transfer otomatis.")
+            // The host's transfer server imports the file into this app's own library. Retry once
+            // after the bounded transfer window instead of abandoning playback immediately.
+            delay(8_000L)
+            RexOfflineManager.refreshNow()
+            val retried = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == id }?.track
+            if (retried == null) {
+                _state.value = _state.value.copy(status = "File belum diterima", error = "Pastikan host mengirim audio dan akses penyimpanan diberikan.")
+                return
+            }
+            syncLocalTrack(id, pos, playing, startAt)
             return
         }
         withContext(Dispatchers.Main) { RexPlayerController.prepareFromOfflineForSync(track) }

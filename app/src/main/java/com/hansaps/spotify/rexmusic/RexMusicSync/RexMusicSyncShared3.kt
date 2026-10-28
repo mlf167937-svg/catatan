@@ -19,39 +19,76 @@ import kotlin.math.max
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
-internal fun RexMusicSyncEngine.__splitImpl_receiveBundle(socket: Socket) {
-        socket.use { s ->
+internal suspend fun RexMusicSyncEngine.__splitImpl_receiveBundle(socket: Socket) {
+    socket.use { s ->
+        var response = "OK"
+        var title = "lagu"
+        try {
+            s.soTimeout = 30_000
+            val input = DataInputStream(s.getInputStream())
+            val track = trackFromJson(JSONObject(input.readUTF())) ?: error("Metadata lagu tidak valid")
+            title = track.title
+            val size = input.readLong()
+            require(size > 0L && size <= 600L * 1024L * 1024L) { "Ukuran transfer tidak valid" }
+            val cacheDir = appContextRef?.cacheDir ?: error("Context aplikasi belum siap")
+            val tempZip = File.createTempFile("hansync-in-", ".zip", cacheDir)
             try {
-                s.soTimeout = 20000
-                val input = DataInputStream(s.getInputStream())
-                val track = trackFromJson(JSONObject(input.readUTF())) ?: return
-                val size = input.readLong(); if (size <= 0L || size > 600L * 1024L * 1024L) return
-                val tempZip = File.createTempFile("rexsync-in-", ".zip", appContextRef?.cacheDir)
-                try { tempZip.outputStream().buffered().use { out ->
-                    var remaining = size; val buffer = ByteArray(64 * 1024)
-                    while (remaining > 0L) { val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt()); if (n < 0) error("Transfer terputus"); out.write(buffer, 0, n); remaining -= n }
+                tempZip.outputStream().buffered().use { out ->
+                    var remaining = size
+                    val buffer = ByteArray(64 * 1024)
+                    while (remaining > 0L) {
+                        val n = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                        if (n < 0) error("Transfer terputus sebelum selesai")
+                        out.write(buffer, 0, n)
+                        remaining -= n
+                    }
                 }
-                val base = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HansAps/.cache/spotifySync/${offlineKey(track)}")
+                val base = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    "HansAps/.cache/spotifySync/${offlineKey(track)}"
+                )
                 base.mkdirs()
-                ZipInputStream(tempZip.inputStream().buffered()).use { zip -> var e = zip.nextEntry; while (e != null) {
-                    val name = File(e.name).name
-                    if (name in setOf("music.mp3", "meta.json", "lyrics.json", "thumbnail.jpg", "thumbnail.png", "thumbnail.jpeg", "thumbnail.webp")) File(base, name).outputStream().use { zip.copyTo(it) }
-                    zip.closeEntry(); e = zip.nextEntry
-                } }
-                val audio = File(base, "music.mp3"); if (!audio.isFile || audio.length() == 0L) error("Cache audio kosong")
+                ZipInputStream(tempZip.inputStream().buffered()).use { zip ->
+                    var entry = zip.nextEntry
+                    while (entry != null) {
+                        val name = File(entry.name).name
+                        if (name in setOf("music.mp3", "meta.json", "lyrics.json", "thumbnail.jpg", "thumbnail.png", "thumbnail.jpeg", "thumbnail.webp")) {
+                            File(base, name).outputStream().use { zip.copyTo(it) }
+                        }
+                        zip.closeEntry()
+                        entry = zip.nextEntry
+                    }
+                }
+                val audio = File(base, "music.mp3")
+                require(audio.isFile && audio.length() > 0L) { "Cache audio kosong" }
                 File(base, "meta.json").writeText(trackJson(track).toString())
                 val imported = RexOfflineManager.importSyncTrack(track, base)
-                _state.value = _state.value.copy(cacheStatus = if (imported) "Cache siap: ${track.title}" else "Cache tersimpan; beri izin penyimpanan agar RexMusic bisa memutarnya", error = null)
+                require(imported) { "Tidak bisa menyimpan ke ${RexOfflineManager.DISPLAY_PATH}; cek izin akses file" }
+                // ACK is sent only after the item exists in the destination app's own library.
+                RexOfflineManager.refreshNow()
+                _state.value = _state.value.copy(cacheStatus = "Hybrid sync siap: ${track.title}", error = null)
                 if (_state.value.hosting) {
                     if (sharedQueue.none { it.id == track.id }) sharedQueue += track
                     publishQueue()
                     val senderIp = s.inetAddress?.hostAddress
-                    peers.filter { it.ip != senderIp }.forEach { peer -> scope.launch { delay(900L); sendBundle(peer.ip, track) } }
+                    peers.filter { it.ip != senderIp }.forEach { peer ->
+                        scope.launch { delay(400L); sendBundle(peer.ip, track) }
+                    }
                 }
-                } finally { tempZip.delete() }
-            } catch (e: Exception) { _state.value = _state.value.copy(cacheStatus = "Transfer gagal: ${e.message}") }
+            } finally {
+                tempZip.delete()
+            }
+        } catch (e: Exception) {
+            response = "ERROR:${e.message ?: "transfer gagal"}"
+            _state.value = _state.value.copy(cacheStatus = "Transfer gagal: ${e.message}", error = e.message)
+        }
+        runCatching {
+            val output = DataOutputStream(s.getOutputStream().buffered())
+            output.writeUTF(response)
+            output.flush()
         }
     }
+}
 
 internal fun RexMusicSyncEngine.__splitImpl_broadcastTick() {
         val now = SystemClock.elapsedRealtime()
@@ -83,23 +120,44 @@ internal fun RexMusicSyncEngine.__splitImpl_broadcastTick() {
     }
 
 internal suspend fun RexMusicSyncEngine.__splitImpl_sendBundle(host: String, track: RexTrack): Boolean = withContext(Dispatchers.IO) {
+    try {
+        val entry = RexOfflineManager.findEntry(track) ?: return@withContext false
+        val dir = RexOfflineManager.directoryFor(entry)
+        val files = listOf("music.mp3", "meta.json", "lyrics.json", "thumbnail.jpg", "thumbnail.png", "thumbnail.jpeg", "thumbnail.webp")
+            .map { File(dir, it) }.filter { it.isFile && it.length() > 0L }
+        if (files.none { it.name == "music.mp3" }) return@withContext false
+        val cache = appContextRef?.cacheDir ?: return@withContext false
+        val temp = File.createTempFile("hansync-out-", ".zip", cache)
         try {
-            val entry = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == track.id } ?: return@withContext false
-            val root = RexOfflineManager.root
-            val dir = File(root, entry.key)
-            val files = listOf("music.mp3", "meta.json", "lyrics.json", "thumbnail.jpg", "thumbnail.png", "thumbnail.jpeg", "thumbnail.webp").map { File(dir, it) }.filter { it.isFile }
-            if (files.none { it.name == "music.mp3" }) return@withContext false
-            val temp = File.createTempFile("rexsync-", ".zip", appContextRef?.cacheDir)
-            try {
-                ZipOutputStream(temp.outputStream().buffered()).use { zip -> files.forEach { f -> zip.putNextEntry(ZipEntry(f.name)); f.inputStream().buffered().use { it.copyTo(zip) }; zip.closeEntry() } }
-                Socket().use { socket -> socket.connect(java.net.InetSocketAddress(host, TRANSFER_PORT), 4000); socket.soTimeout = 30000
-                    val out = DataOutputStream(socket.getOutputStream().buffered())
-                    out.writeUTF(trackJson(track).toString()); out.writeLong(temp.length()); temp.inputStream().buffered().use { it.copyTo(out) }; out.flush()
+            ZipOutputStream(temp.outputStream().buffered()).use { zip ->
+                files.forEach { file ->
+                    zip.putNextEntry(ZipEntry(file.name))
+                    file.inputStream().buffered().use { it.copyTo(zip) }
+                    zip.closeEntry()
                 }
-            } finally { temp.delete() }
-            true
-        } catch (_: Exception) { false }
+            }
+            Socket().use { socket ->
+                socket.connect(java.net.InetSocketAddress(host, TRANSFER_PORT), 5_000)
+                socket.soTimeout = 35_000
+                val out = DataOutputStream(socket.getOutputStream().buffered())
+                out.writeUTF(trackJson(entry.track).toString())
+                out.writeLong(temp.length())
+                temp.inputStream().buffered().use { it.copyTo(out) }
+                out.flush()
+                socket.shutdownOutput()
+                // Updated HansAps sends an explicit ACK. Original RexMusic builds close the
+                // socket after import without an ACK, so EOF is accepted for interoperability.
+                val ack = runCatching { DataInputStream(socket.getInputStream()).readUTF() }.getOrNull()
+                if (!ack.isNullOrBlank() && !ack.startsWith("OK")) return@withContext false
+            }
+        } finally {
+            temp.delete()
+        }
+        true
+    } catch (_: Exception) {
+        false
     }
+}
 
 internal fun RexMusicSyncEngine.__splitImpl_resumeRoomAtCurrentPosition() {
         val track = hostTrack ?: return

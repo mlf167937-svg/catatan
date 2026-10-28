@@ -28,8 +28,29 @@ internal fun RexMusicSyncEngine.__splitImpl_handleClientMessage(m: JSONObject) {
             "members" -> {
                 val a = m.optJSONArray("members")
                 val list = mutableListOf<SyncMember>()
-                if (a != null) for (i in 0 until a.length()) { val o = a.optJSONObject(i) ?: continue; list += SyncMember(o.optString("id"), o.optString("name"), volume = o.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f), deviceVolume = o.optDouble("deviceVolume", -1.0).toFloat().coerceIn(-1f, 1f)) }
+                if (a != null) for (i in 0 until a.length()) {
+                    val o = a.optJSONObject(i) ?: continue
+                    val id = o.optString("id")
+                    val ownProfile = if (id == RexMusicSyncEngine.clientPeerId && id.isNotBlank()) RexLocalProfileBridge.read() else null
+                    val saved = RexLocalProfileBridge.saveSyncedProfileAssets(id, o.optString("pictureData"), o.optString("bannerData"))
+                    val picture = saved.first.ifBlank {
+                        if (ownProfile != null) ownProfile.picturePath.ifBlank { ownProfile.pictureVideo } else ""
+                    }
+                    val banner = saved.second.ifBlank {
+                        if (ownProfile != null) ownProfile.bannerPath.ifBlank { ownProfile.bannerVideo } else ""
+                    }
+                    list += SyncMember(
+                        id = id,
+                        name = o.optString("name").ifBlank { ownProfile?.name.orEmpty() },
+                        volume = o.optDouble("volume", 1.0).toFloat().coerceIn(0f, 1f),
+                        deviceVolume = o.optDouble("deviceVolume", -1.0).toFloat().coerceIn(-1f, 1f),
+                        username = o.optString("username").ifBlank { ownProfile?.username.orEmpty() },
+                        bio = o.optString("bio").ifBlank { ownProfile?.bio.orEmpty() },
+                        picturePath = picture, bannerPath = banner
+                    )
+                }
                 _state.value = _state.value.copy(members = list)
+
             }
             "sync" -> {
                 val id = m.optString("trackId")

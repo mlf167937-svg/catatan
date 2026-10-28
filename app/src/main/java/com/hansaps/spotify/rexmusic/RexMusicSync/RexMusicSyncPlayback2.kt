@@ -102,14 +102,18 @@ internal fun __splitImpl_SyncPlaybackEmptyCard() {
 }
 
 internal suspend fun RexMusicSyncEngine.__splitImpl_distributeLocalTrack(track: RexTrack) {
-        val entry = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == track.id } ?: return
-        val peersSnapshot = peers.toList()
-        for (p in peersSnapshot) {
-            val ok = sendBundle(p.ip, track)
-            if (!ok) _state.value = _state.value.copy(cacheStatus = "Gagal mengirim ke ${p.name}; cek Wi-Fi/firewall")
-        }
-        _state.value = _state.value.copy(cacheStatus = "Cache lagu siap untuk anggota yang terjangkau")
+    val entry = RexOfflineManager.findEntry(track) ?: return
+    val peersSnapshot = peers.toList()
+    var failures = 0
+    for (peer in peersSnapshot) {
+        val ok = sendBundle(peer.ip, entry.track)
+        if (ok) peer.sentTrackId = entry.track.id else failures++
     }
+    _state.value = _state.value.copy(
+        cacheStatus = if (failures == 0) "Cache siap di ${peersSnapshot.size} anggota" else "Transfer gagal ke $failures anggota",
+        error = if (failures == 0) null else "Cek koneksi, port $TRANSFER_PORT, serta izin penyimpanan di perangkat penerima."
+    )
+}
 
 internal fun RexMusicSyncEngine.__splitImpl_setMemberVolume(id: String, value: Float) {
         val v = value.coerceIn(0f, 1f)

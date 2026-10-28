@@ -9,19 +9,45 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 
 internal fun RexMusicSyncEngine.__splitImpl_broadcastMembers() {
-        val a = org.json.JSONArray().put(JSONObject().put("id", "host").put("name", "Host"))
-        peers.forEach { a.put(JSONObject().put("id", it.id).put("name", it.name).put("volume", it.volume).put("deviceVolume", it.deviceVolume)) }
-        _state.value = _state.value.copy(members = listOf(SyncMember("host", "Host")) + peers.map { SyncMember(it.id, it.name, ip = it.ip, volume = it.volume, deviceVolume = it.deviceVolume) }, volumes = peers.associate { it.id to it.volume })
-        val msg = JSONObject().put("type", "members").put("members", a)
-        peers.forEach { send(it.writer, msg) }
+    val profile = RexLocalProfileBridge.read()
+    val hostAssets = RexLocalProfileBridge.encodeProfileAssets(profile)
+    val hostPreview = RexLocalProfileBridge.saveSyncedProfileAssets("host-local", hostAssets.first, hostAssets.second)
+    val hostPicture = hostPreview.first.ifBlank { profile.picturePath.ifBlank { profile.pictureVideo } }
+    val hostBanner = hostPreview.second.ifBlank { profile.bannerPath.ifBlank { profile.bannerVideo } }
+    val membersJson = org.json.JSONArray().put(
+        JSONObject().put("id", "host").put("name", profile.name.ifBlank { _state.value.name })
+            .put("username", profile.username).put("bio", profile.bio)
+            .put("picturePath", hostPicture).put("bannerPath", hostBanner)
+            .put("pictureData", hostAssets.first).put("bannerData", hostAssets.second)
+    )
+    peers.forEach { peer ->
+        membersJson.put(
+            JSONObject().put("id", peer.id).put("name", peer.name)
+                .put("username", peer.username).put("bio", peer.bio)
+                .put("pictureData", peer.pictureData).put("bannerData", peer.bannerData)
+                .put("volume", peer.volume).put("deviceVolume", peer.deviceVolume)
+        )
     }
+    _state.value = _state.value.copy(
+        members = listOf(
+            SyncMember("host", profile.name.ifBlank { _state.value.name }, username = profile.username,
+                bio = profile.bio, picturePath = hostPicture, bannerPath = hostBanner)
+        ) + peers.map { peer ->
+            SyncMember(peer.id, peer.name, ip = peer.ip, volume = peer.volume, deviceVolume = peer.deviceVolume,
+                username = peer.username, bio = peer.bio, picturePath = peer.picturePath, bannerPath = peer.bannerPath)
+        },
+        volumes = peers.associate { it.id to it.volume }
+    )
+    val msg = JSONObject().put("type", "members").put("members", membersJson)
+    peers.forEach { send(it.writer, msg) }
+}
 
 internal fun RexMusicSyncEngine.__splitImpl_closeAll() {
         hostPreparing = false; hostPlaying = false; roomStartedElapsedMs = 0L; clockOffsetMs = 0L; lastClockRttMs = -1L
         heartbeat?.cancel(); playbackJob?.cancel(); roomJob?.cancel(); roomJob = null
         sharedQueue.clear()
         peers.forEach { runCatching { it.socket.close() } }; peers.clear()
-        runCatching { client?.close() }; client = null; clientWriter = null
+        runCatching { client?.close() }; client = null; clientWriter = null; clientPeerId = ""
         runCatching { server?.close() }; server = null
         if (_state.value.hosting) stopLocalPlayback()
         _state.value = _state.value.copy(queue = emptyList())

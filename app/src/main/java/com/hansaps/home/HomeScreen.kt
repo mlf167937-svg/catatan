@@ -19,12 +19,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AccountCircle
 import androidx.compose.material.icons.rounded.ArrowOutward
 import androidx.compose.material.icons.rounded.Logout
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material3.Button
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -53,12 +55,25 @@ fun HomeScreen(
     account: AppAccount,
     onOpenSpotify: () -> Unit,
     onOpenYoutube: () -> Unit,
+    onOpenLocalAccount: () -> Unit,
     onOpenDeveloper: () -> Unit,
     onOpenOwner: () -> Unit,
     onLogout: () -> Unit,
 ) {
+    Scaffold(
+        containerColor = HansColors.Background,
+        bottomBar = {
+            HansMainBottomNavigation(
+                selected = MainNavTab.HOME,
+                onHome = {},
+                onSpotify = onOpenSpotify,
+                onYoutube = onOpenYoutube,
+                onAccount = onOpenLocalAccount,
+            )
+        }
+    ) { scaffoldPadding ->
     Column(
-        modifier = Modifier.fillMaxSize().background(HansColors.Background).windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
+        modifier = Modifier.fillMaxSize().padding(scaffoldPadding).background(HansColors.Background).windowInsetsPadding(WindowInsets.safeDrawing).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -101,6 +116,14 @@ fun HomeScreen(
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Jelajahi", color = HansColors.Text, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
             FeatureCard(
+                title = "Local Account",
+                subtitle = "Foto profil, banner, bio, dan profil lokal untuk Sync.",
+                label = "PERSONAL PROFILE",
+                tint = HansColors.Lime,
+                icon = { Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = HansColors.Lime, modifier = Modifier.size(23.dp)) },
+                onClick = onOpenLocalAccount,
+            )
+            FeatureCard(
                 title = "HansAps Spotify",
                 subtitle = "Playlist, pemutar, antrean, dan musik offline.",
                 label = "MUSIC SPACE",
@@ -141,6 +164,7 @@ fun HomeScreen(
         }
 
         Text("LOCAL-FIRST • YOUR LIBRARY • YOUR SPACE", color = HansColors.Muted, fontSize = 9.sp, letterSpacing = 1.4.sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 4.dp))
+    }
     }
 }
 

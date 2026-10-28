@@ -63,7 +63,7 @@ internal fun __splitImpl_SyncQueueTrackCard(track: RexTrack, onPlay: () -> Unit)
 }
 
 internal fun RexMusicSyncEngine.__splitImpl_addToQueue(track: RexTrack) {
-        val local = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == track.id }
+        val local = RexOfflineManager.findEntry(track)
         if (local == null) { _state.value = _state.value.copy(error = "Lagu ini belum tersedia offline di HP kamu.", cacheStatus = "Pilih lagu yang sudah diunduh."); return }
         if (_state.value.hosting) {
             if (sharedQueue.none { it.id == local.track.id }) sharedQueue += local.track
@@ -80,7 +80,7 @@ internal fun RexMusicSyncEngine.__splitImpl_addToQueue(track: RexTrack) {
 internal fun RexMusicSyncEngine.__splitImpl_playQueued(track: RexTrack) {
         if (_state.value.hosting) scope.launch {
             delay(500L)
-            val offline = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == track.id }
+            val offline = RexOfflineManager.findEntry(track)
             if (offline == null) { _state.value = _state.value.copy(error = "Transfer lagu belum selesai atau izin penyimpanan belum aktif."); return@launch }
             sharedQueue.removeAll { it.id == track.id }; publishQueue(); playTrack(offline.track)
         } else if (_state.value.connected) runCatching { clientWriter?.let { send(it, JSONObject().put("type", "play_request").put("trackId", track.id)) } }

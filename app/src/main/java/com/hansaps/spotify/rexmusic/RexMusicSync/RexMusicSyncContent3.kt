@@ -1,5 +1,11 @@
 package com.hansaps.spotify.rexmusic
 
+import java.io.File
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -28,27 +34,50 @@ internal fun __splitImpl_SyncMemberCard(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            val bannerFile = remember(member.bannerPath) { member.bannerPath.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.isFile } }
+            if (bannerFile != null) {
+                AsyncImage(
+                    model = bannerFile,
+                    contentDescription = "Banner ${member.name}",
+                    modifier = Modifier.fillMaxWidth().height(68.dp).clip(RoundedCornerShape(13.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val avatarFile = remember(member.picturePath) { member.picturePath.takeIf { it.isNotBlank() }?.let(::File)?.takeIf { it.isFile } }
                 Surface(
-                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.size(44.dp),
+                    shape = CircleShape,
                     color = scheme.secondaryContainer
                 ) {
-                    androidx.compose.material3.Icon(
-                        Icons.Default.MusicNote,
-                        contentDescription = null,
-                        modifier = Modifier.padding(10.dp),
-                        tint = scheme.onSecondaryContainer
-                    )
+                    if (avatarFile != null) {
+                        AsyncImage(
+                            model = avatarFile,
+                            contentDescription = "Foto profil ${member.name}",
+                            modifier = Modifier.fillMaxSize().clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        androidx.compose.material3.Icon(
+                            Icons.Default.MusicNote,
+                            contentDescription = null,
+                            modifier = Modifier.padding(10.dp),
+                            tint = scheme.onSecondaryContainer
+                        )
+                    }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
                     Text(member.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     Text(
-                        if (member.id == "host") "Host device" else "Connected · ${member.ip}",
+                        member.username.ifBlank { if (member.id == "host") "Host device" else "Connected · ${member.ip}" },
                         style = MaterialTheme.typography.bodySmall,
                         color = scheme.onSurfaceVariant,
                         maxLines = 1
                     )
+                    if (member.bio.isNotBlank()) {
+                        Text(member.bio, style = MaterialTheme.typography.bodySmall, color = scheme.onSurfaceVariant, maxLines = 2)
+                    }
                 }
                 if (member.id == "host") {
                     Text("YOU", style = MaterialTheme.typography.labelSmall, color = scheme.primary)

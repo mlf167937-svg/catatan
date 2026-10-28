@@ -23,7 +23,20 @@ internal const val CLIENT_TIMEOUT_MS = 3500L
 internal const val START_LEAD_MS = 3000L
 internal const val DRIFT_CORRECTION_MS = 250L
 
-internal data class SyncMember(val id: String, val name: String, val connectedAt: Long = SystemClock.elapsedRealtime(), val ip: String = "", val volume: Float = 1f, val deviceVolume: Float = -1f)
+internal data class SyncMember(
+    val id: String,
+    val name: String,
+    val connectedAt: Long = SystemClock.elapsedRealtime(),
+    val ip: String = "",
+    val volume: Float = 1f,
+    val deviceVolume: Float = -1f,
+    val username: String = "",
+    val bio: String = "",
+    /** Local path to a received avatar thumbnail, not a path from another device. */
+    val picturePath: String = "",
+    /** Local path to a received banner thumbnail, not a path from another device. */
+    val bannerPath: String = ""
+)
 internal data class SyncUiState(
     val hosting: Boolean = false, val connected: Boolean = false, val room: String = "RexSyncRoom1",
     val ip: String = "", val password: String = "rexsync", val name: String = "User",
@@ -48,6 +61,7 @@ internal object RexMusicSyncEngine {
     internal val peers = CopyOnWriteArrayList<Peer>()
     internal var client: Socket? = null
     internal var clientWriter: BufferedWriter? = null
+    @Volatile internal var clientPeerId: String = ""
     internal var heartbeat: Job? = null
     internal var playbackJob: Job? = null
     internal var roomPassword = "rexsync"
@@ -63,7 +77,7 @@ internal object RexMusicSyncEngine {
     internal var resumeWhenMemberReturns = false
 
     internal data class Peer(val socket: Socket, val reader: BufferedReader, val writer: BufferedWriter,
-                            var id: String = "", var name: String = "", @Volatile var lastSeen: Long = SystemClock.elapsedRealtime(), val ip: String = socket.inetAddress?.hostAddress.orEmpty(), @Volatile var volume: Float = 1f, @Volatile var deviceVolume: Float = -1f, @Volatile var clockSynced: Boolean = false)
+                            var id: String = "", var name: String = "", @Volatile var lastSeen: Long = SystemClock.elapsedRealtime(), val ip: String = socket.inetAddress?.hostAddress.orEmpty(), @Volatile var volume: Float = 1f, @Volatile var deviceVolume: Float = -1f, @Volatile var clockSynced: Boolean = false, @Volatile var sentTrackId: String = "", var username: String = "", var bio: String = "", var picturePath: String = "", var bannerPath: String = "", var pictureData: String = "", var bannerData: String = "")
 
     fun detectIp(context: Context): String = this.__splitImpl_detectIp(context)
 
@@ -157,7 +171,7 @@ internal object RexMusicSyncEngine {
 
     internal suspend fun sendBundle(host: String, track: RexTrack): Boolean = this.__splitImpl_sendBundle(host, track)
 
-    internal fun receiveBundle(socket: Socket) {
+    internal suspend fun receiveBundle(socket: Socket) {
         return this.__splitImpl_receiveBundle(socket)
     }
 

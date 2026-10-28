@@ -7,29 +7,41 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 internal fun RexOfflineManager.__splitImpl_scan(): List<OfflineEntry> {
-        val dirs = root.listFiles { f -> f.isDirectory } ?: return emptyList()
+    fun scanRoot(base: File, sourceApp: String): List<OfflineEntry> {
+        val dirs = base.listFiles { f -> f.isDirectory } ?: return emptyList()
         return dirs.mapNotNull { dir ->
             val mp3 = File(dir, AUDIO_NAME)
             if (!mp3.isFile || mp3.length() <= 0L) return@mapNotNull null
             val thumb = findThumbnail(dir)
             val meta = readMeta(dir)
+            val title = meta?.optString("title").orEmpty().ifBlank { dir.name.replace('-', ' ') }
+            val artist = meta?.optString("artist").orEmpty().ifBlank { "Unknown" }
             val track = RexTrack(
                 id = meta?.optString("id").orEmpty().ifBlank { "off-${dir.name}" },
-                title = meta?.optString("title").orEmpty().ifBlank { dir.name.replace('-', ' ') },
-                artist = meta?.optString("artist").orEmpty().ifBlank { "Unknown" },
+                title = title,
+                artist = artist,
                 album = meta?.optString("album").orEmpty().ifBlank { "Offline" },
                 cover = thumb?.let { Uri.fromFile(it).toString() }.orEmpty(),
                 spotifyUrl = meta?.optString("spotifyUrl").orEmpty(),
                 durationText = meta?.optString("durationText").orEmpty()
             )
             OfflineEntry(
-                key = dir.name,
+                key = if (sourceApp == "RexAps") "RexAps:${dir.name}" else dir.name,
                 track = track,
                 sizeBytes = dir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
-                savedAt = mp3.lastModified()
+                savedAt = mp3.lastModified(),
+                sourcePath = dir.absolutePath,
+                sourceApp = sourceApp
             )
-        }.sortedByDescending { it.savedAt }
+        }
     }
+
+    // Keep HansAps first so a local copy wins when the same track exists in both app folders.
+    val combined = scanRoot(root, "HansAps") + scanRoot(rexApsRoot, "RexAps")
+    return combined
+        .distinctBy { "${it.track.title.trim().lowercase()}|${it.track.artist.trim().lowercase()}" }
+        .sortedByDescending { it.savedAt }
+}
 
 /** Buka koneksi dan ikuti redirect sendiri (termasuk http -> https). */
     internal fun RexOfflineManager.__splitImpl_openConnection(url: String): HttpURLConnection {

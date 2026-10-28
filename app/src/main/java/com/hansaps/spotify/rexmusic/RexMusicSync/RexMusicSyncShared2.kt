@@ -25,11 +25,24 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_acceptPeer(socket: Socket) {
             }
             p.id = join.optString("id").ifBlank { java.util.UUID.randomUUID().toString() }
             p.name = join.optString("name").trim().ifBlank { "User" }
+            p.username = join.optString("username").trim()
+            p.bio = join.optString("bio").trim()
+            val savedAssets = RexLocalProfileBridge.saveSyncedProfileAssets(
+                p.id, join.optString("pictureData"), join.optString("bannerData")
+            )
+            p.picturePath = savedAssets.first
+            p.bannerPath = savedAssets.second
+            p.pictureData = join.optString("pictureData")
+            p.bannerData = join.optString("bannerData")
             p.lastSeen = SystemClock.elapsedRealtime()
             peers.add(p)
-            send(p.writer, JSONObject().put("type", "welcome").put("id", p.id).put("room", roomName))
+            val localProfile = RexLocalProfileBridge.read()
+            val localAssets = RexLocalProfileBridge.encodeProfileAssets(localProfile)
+            send(p.writer, JSONObject().put("type", "welcome").put("id", p.id).put("room", roomName)
+                .put("name", localProfile.name).put("username", localProfile.username).put("bio", localProfile.bio)
+                .put("pictureData", localAssets.first).put("bannerData", localAssets.second))
+            sendQueue(p)
             broadcastMembers()
-            sendQueue(p); broadcastMembers()
             while (true) {
                 val line = withContext(Dispatchers.IO) { p.reader.readLine() } ?: break
                 val msg = JSONObject(line)
@@ -39,15 +52,35 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_acceptPeer(socket: Socket) {
                         p.deviceVolume = msg.optDouble("deviceVolume", -1.0).toFloat().coerceIn(-1f, 1f)
                         _state.value = _state.value.copy(members = _state.value.members.map { if (it.id == p.id) it.copy(deviceVolume = p.deviceVolume) else it })
                         val hostSend = SystemClock.elapsedRealtime()
-                        p.clockSynced = true
+                        val activeTrack = hostTrack
+                        val needsBundle = activeTrack != null && p.sentTrackId != activeTrack.id
+                        p.clockSynced = !needsBundle
                         send(p.writer, JSONObject().put("type", "pong")
                             .put("clientElapsed", msg.optLong("clientElapsed", 0L))
                             .put("hostReceiveElapsed", hostSend)
                             .put("hostSendElapsed", SystemClock.elapsedRealtime()))
-                        if (hostTrack != null) sendState(p)
+                        if (needsBundle && activeTrack != null) {
+                            scope.launch {
+                                val sent = sendBundle(p.ip, activeTrack)
+                                if (sent) p.sentTrackId = activeTrack.id
+                                else _state.value = _state.value.copy(cacheStatus = "Gagal mengirim ${activeTrack.title} ke ${p.name}")
+                                p.clockSynced = true
+                                sendState(p)
+                            }
+                        } else if (activeTrack != null) sendState(p)
                     }
                     "ready" -> { p.lastSeen = SystemClock.elapsedRealtime() }
                     "request_track" -> { p.lastSeen = SystemClock.elapsedRealtime(); if (hostTrack != null) sendState(p) }
+                    "request_bundle" -> {
+                        p.lastSeen = SystemClock.elapsedRealtime()
+                        val id = msg.optString("trackId")
+                        val entry = RexOfflineManager.state.value.entries.firstOrNull { it.track.id == id }
+                        if (entry != null) scope.launch {
+                            val sent = sendBundle(p.ip, entry.track)
+                            if (sent) p.sentTrackId = entry.track.id
+                            else _state.value = _state.value.copy(cacheStatus = "Gagal mengirim ${entry.track.title} ke ${p.name}")
+                        }
+                    }
                     "queue_add" -> {
                         p.lastSeen = SystemClock.elapsedRealtime()
                         val t = trackFromJson(msg.optJSONObject("track"))
@@ -73,7 +106,7 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_acceptPeer(socket: Socket) {
 
 internal fun RexMusicSyncEngine.__splitImpl_joinRoom(room: String, ip: String, password: String) {
         closeAll()
-        val profileName = RexLocalProfileBridge.read().name.trim().ifBlank { "Rex User" }
+        val profileName = RexLocalProfileBridge.read().name.trim().ifBlank { "HansAps User" }
         _state.value = _state.value.copy(hosting = false, connected = false, room = room, name = profileName,
             ip = ip, password = password, status = "Menghubungkan…", error = null)
         scope.launch {
@@ -85,10 +118,20 @@ internal fun RexMusicSyncEngine.__splitImpl_joinRoom(room: String, ip: String, p
                 val writer = BufferedWriter(OutputStreamWriter(s.getOutputStream(), Charsets.UTF_8))
                 client = s; clientWriter = writer
                 val id = java.util.UUID.randomUUID().toString()
-                send(writer, JSONObject().put("type", "join").put("id", id).put("room", room.trim()).put("name", profileName).put("password", password))
+                clientPeerId = id
+                val profile = RexLocalProfileBridge.read()
+                val profileAssets = RexLocalProfileBridge.encodeProfileAssets(profile)
+                send(writer, JSONObject().put("type", "join").put("id", id).put("room", room.trim())
+                    .put("name", profileName).put("username", profile.username).put("bio", profile.bio)
+                    .put("picturePath", profile.picturePath).put("bannerPath", profile.bannerPath)
+                    .put("pictureData", profileAssets.first).put("bannerData", profileAssets.second)
+                    .put("password", password))
                 val first = reader.readLine() ?: error("Host menutup koneksi")
                 val welcome = JSONObject(first)
                 if (welcome.optString("type") != "welcome") error(welcome.optString("reason", "Ditolak host"))
+                RexLocalProfileBridge.saveSyncedProfileAssets(
+                    "host", welcome.optString("pictureData"), welcome.optString("bannerData")
+                )
                 _state.value = _state.value.copy(connected = true, status = "Terhubung ke ${room.trim()}", error = null)
                 heartbeat?.cancel()
                 heartbeat = launch { while (isActive && client?.isClosed == false) { runCatching {

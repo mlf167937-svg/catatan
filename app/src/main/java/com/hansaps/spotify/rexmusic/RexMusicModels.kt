@@ -39,10 +39,15 @@ data class DownloadStatus(
 
 /** Satu lagu yang sudah tersimpan di Download/HansAps/Spotify. key = nama folder. */
 data class OfflineEntry(
+    /** Unique row key. RexAps entries use the prefix "RexAps:" to avoid folder-name collisions. */
     val key: String,
     val track: RexTrack,
     val sizeBytes: Long = 0L,
-    val savedAt: Long = 0L
+    val savedAt: Long = 0L,
+    /** Absolute source folder. Primary library: Download/HansAps/Spotify; hybrid import: Download/RexAps/Music. */
+    val sourcePath: String = "",
+    /** "HansAps" or "RexAps"; external entries are read-only from HansAps. */
+    val sourceApp: String = "HansAps"
 )
 
 data class OfflineState(

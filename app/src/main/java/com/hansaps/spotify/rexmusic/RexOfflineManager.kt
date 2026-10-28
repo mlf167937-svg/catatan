@@ -36,8 +36,16 @@ fun offlineKey(track: RexTrack): String {
 }
 
 /** Key folder lagu ini kalau sudah diunduh (cocok lewat nama folder, atau lewat id). */
+private fun normalizedTrackPart(value: String): String =
+    value.trim().lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), " ").trim()
+
 fun OfflineState.keyFor(track: RexTrack, key: String = offlineKey(track)): String? =
-    if (key in keys) key else entries.firstOrNull { it.track.id == track.id }?.key
+    entries.firstOrNull { it.track.id == track.id }?.key
+        ?: entries.firstOrNull {
+            normalizedTrackPart(it.track.title) == normalizedTrackPart(track.title) &&
+                normalizedTrackPart(it.track.artist) == normalizedTrackPart(track.artist)
+        }?.key
+        ?: key.takeIf { it in keys }
 
 fun OfflineState.isDownloaded(track: RexTrack, key: String = offlineKey(track)): Boolean =
     keyFor(track, key) != null
@@ -83,6 +91,26 @@ object RexOfflineManager {
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             "HansAps/Spotify"
         )
+
+    /** Read-only compatibility source used by RexMusic: Download/RexAps/Music. */
+    internal val rexApsRoot: File
+        get() = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "RexAps/Music"
+        )
+
+    internal fun directoryFor(entry: OfflineEntry): File =
+        entry.sourcePath.takeIf { it.isNotBlank() }?.let(::File) ?: File(root, entry.key.removePrefix("RexAps:"))
+
+    internal fun findEntry(track: RexTrack): OfflineEntry? =
+        _state.value.entries.firstOrNull { it.track.id == track.id }
+            ?: _state.value.entries.firstOrNull {
+                normalizedTrackPart(it.track.title) == normalizedTrackPart(track.title) &&
+                    normalizedTrackPart(it.track.artist) == normalizedTrackPart(track.artist)
+            }
+
+    internal fun findEntryById(id: String): OfflineEntry? =
+        _state.value.entries.firstOrNull { it.track.id == id }
 
     @Synchronized
     fun init(context: Context) {
@@ -145,15 +173,15 @@ object RexOfflineManager {
 
     /** File mp3 lokal untuk lagu ini, atau null kalau belum diunduh. */
     fun audioFile(track: RexTrack): File? {
-        val key = _state.value.keyFor(track) ?: return null
-        val file = File(root, "$key/$AUDIO_NAME")
+        val entry = findEntry(track) ?: return null
+        val file = File(directoryFor(entry), AUDIO_NAME)
         return file.takeIf { it.isFile && it.length() > 0L }
     }
 
-    /** Lirik offline yang sudah disimpan bersama lagu. */
+    /** Lirik offline yang sudah disimpan bersama lagu, termasuk lagu yang dibaca dari RexAps. */
     fun lyricsFile(track: RexTrack): File? {
-        val key = _state.value.keyFor(track) ?: return null
-        val file = File(root, "$key/$LYRICS_NAME")
+        val entry = findEntry(track) ?: return null
+        val file = File(directoryFor(entry), LYRICS_NAME)
         return file.takeIf { it.isFile && it.length() > 0L }
     }
 
@@ -170,21 +198,25 @@ object RexOfflineManager {
     }
 
     fun delete(track: RexTrack) {
-        val key = _state.value.keyFor(track) ?: return
-        jobs[key]?.cancel()
+        val entry = findEntry(track) ?: return
+        if (entry.sourceApp != "HansAps") {
+            _messages.tryEmit("Lagu ini berasal dari RexAps/Music. HansAps membacanya tanpa menghapus file asli; hapus lagu dari RexAps untuk menghilangkannya.")
+            return
+        }
+        jobs[entry.key]?.cancel()
         scope.launch {
-            withContext(Dispatchers.IO) { File(root, key).deleteRecursively() }
+            withContext(Dispatchers.IO) { directoryFor(entry).deleteRecursively() }
             refreshNow()
             _messages.tryEmit("Dihapus dari offline: ${track.title}")
         }
     }
 
     fun deleteAll() {
-        val keys = _state.value.entries.map { it.key }
+        val localEntries = _state.value.entries.filter { it.sourceApp == "HansAps" }
         scope.launch {
-            withContext(Dispatchers.IO) { keys.forEach { File(root, it).deleteRecursively() } }
+            withContext(Dispatchers.IO) { localEntries.forEach { directoryFor(it).deleteRecursively() } }
             refreshNow()
-            _messages.tryEmit("Semua lagu offline dihapus")
+            _messages.tryEmit("Lagu offline HansAps dihapus; file RexAps tetap aman")
         }
     }
 
