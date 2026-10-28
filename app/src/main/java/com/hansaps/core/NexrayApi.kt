@@ -12,6 +12,30 @@ import java.util.Locale
 /** API routes taken from the original HansAps HTML (Nexray). */
 object NexrayApi {
     private const val BASE = "https://api.nexray.eu.cc"
+    private const val SEARCH_TTL_MS = 5 * 60_000L
+    private const val AUDIO_TTL_MS = 15 * 60_000L
+    private const val LYRICS_TTL_MS = 24 * 60 * 60_000L
+    private const val MEDIA_URL_TTL_MS = 2 * 60_000L
+
+    private data class CacheEntry<T>(val value: T, val createdAt: Long = System.currentTimeMillis()) {
+        fun isFresh(ttlMs: Long) = System.currentTimeMillis() - createdAt < ttlMs
+    }
+    private fun <T> lruCache(maxSize: Int) = object : LinkedHashMap<String, CacheEntry<T>>(maxSize + 1, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CacheEntry<T>>?) = size > maxSize
+    }
+    private val spotifySearchCache = lruCache<List<NexraySpotifyTrack>>(30)
+    private val spotifyAudioCache = lruCache<String>(64)
+    private val lyricsCache = lruCache<NexrayLyrics>(40)
+    private val youtubeSearchCache = lruCache<List<NexrayYoutubeVideo>>(30)
+    private val youtubeMediaCache = lruCache<List<NexrayMediaFormat>>(20)
+
+    private fun <T> cached(cache: MutableMap<String, CacheEntry<T>>, key: String, ttlMs: Long): T? =
+        synchronized(cache) { cache[key]?.takeIf { it.isFresh(ttlMs) }?.value }
+    private fun <T> cache(cache: MutableMap<String, CacheEntry<T>>, key: String, value: T) {
+        synchronized(cache) { cache[key] = CacheEntry(value) }
+    }
+    private fun cacheKey(value: String) = value.trim().lowercase(Locale.ROOT)
+
     private const val SPOTIFY_SEARCH = "$BASE/search/spotify?q="
     private const val SPOTIFY_DOWNLOAD = "$BASE/downloader/spotify?url="
     private const val LYRICS_SEARCH = "$BASE/search/lyrics?q="
@@ -19,10 +43,12 @@ object NexrayApi {
     private const val YOUTUBE_DOWNLOAD = "$BASE/downloader/aio?url="
 
     suspend fun searchSpotify(query: String): List<NexraySpotifyTrack> = withContext(Dispatchers.IO) {
+        val key = cacheKey(query)
+        cached(spotifySearchCache, key, SEARCH_TTL_MS)?.let { return@withContext it }
         val root = getJson(SPOTIFY_SEARCH + encode(query.trim()))
         ensureSuccess(root)
         val array = root.optJSONArray("result") ?: root.optJSONArray("results") ?: JSONArray()
-        buildList {
+        val parsed = buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 val trackUrl = item.firstString("url", "spotifyUrl", "spotify_url")
@@ -40,19 +66,26 @@ object NexrayApi {
                 )
             }
         }
+        cache(spotifySearchCache, key, parsed)
+        parsed
     }
 
     suspend fun resolveSpotifyAudio(spotifyUrl: String): String = withContext(Dispatchers.IO) {
+        cached(spotifyAudioCache, spotifyUrl, AUDIO_TTL_MS)?.let { return@withContext it }
         val root = getJson(SPOTIFY_DOWNLOAD + encode(spotifyUrl))
         ensureSuccess(root)
         val result = root.optJSONObject("result") ?: root
-        result.firstString("url", "audio", "download", "streamUrl", "stream_url")
+        val audioUrl = result.firstString("url", "audio", "download", "streamUrl", "stream_url")
             .takeIf(::isHttpUrl)
             ?: throw IllegalStateException(root.optString("message").ifBlank { "Nexray tidak mengembalikan URL audio." })
+        cache(spotifyAudioCache, spotifyUrl, audioUrl)
+        audioUrl
     }
 
     suspend fun searchLyrics(title: String, artist: String): NexrayLyrics = withContext(Dispatchers.IO) {
         val query = listOf(title, artist).filter { it.isNotBlank() }.joinToString(" ")
+        val key = cacheKey(query)
+        cached(lyricsCache, key, LYRICS_TTL_MS)?.let { return@withContext it }
         val root = getJson(LYRICS_SEARCH + encode(query))
         ensureSuccess(root)
         val result = root.optJSONObject("result") ?: JSONObject()
@@ -60,14 +93,16 @@ object NexrayApi {
         NexrayLyrics(
             synced = lyrics.firstString("synced_lyrics", "syncedLyrics", "synced"),
             plain = lyrics.firstString("plain_lyrics", "plainLyrics", "lyrics", "text"),
-        )
+        ).also { cache(lyricsCache, key, it) }
     }
 
     suspend fun searchYoutube(query: String): List<NexrayYoutubeVideo> = withContext(Dispatchers.IO) {
+        val key = cacheKey(query)
+        cached(youtubeSearchCache, key, SEARCH_TTL_MS)?.let { return@withContext it }
         val root = getJson(YOUTUBE_SEARCH + encode(query.trim()))
         ensureSuccess(root)
         val array = root.optJSONArray("result") ?: root.optJSONArray("results") ?: JSONArray()
-        buildList {
+        val parsed = buildList {
             for (i in 0 until array.length()) {
                 val item = array.optJSONObject(i) ?: continue
                 if (item.optString("type").equals("channel", true)) continue
@@ -90,48 +125,80 @@ object NexrayApi {
                 )
             }
         }
+        cache(youtubeSearchCache, key, parsed)
+        parsed
     }
 
     suspend fun resolveYoutubeMedia(youtubeUrl: String): List<NexrayMediaFormat> = withContext(Dispatchers.IO) {
+        cached(youtubeMediaCache, youtubeUrl, MEDIA_URL_TTL_MS)?.let { return@withContext it }
         val root = getJson(YOUTUBE_DOWNLOAD + encode(youtubeUrl))
         ensureSuccess(root)
         val result = root.optJSONObject("result") ?: root
-        if (result.has("error") && !result.isNull("error")) {
-            throw IllegalStateException(result.optString("error").ifBlank { "Nexray gagal menyiapkan video." })
+        // Nexray returns "error": false for successful responses. The old check treated
+        // any non-null value as an error, which prevented all quality options from showing.
+        val errorValue = result.opt("error")
+        if ((errorValue is Boolean && errorValue) ||
+            (errorValue is String && errorValue.isNotBlank() && !errorValue.equals("false", true))) {
+            throw IllegalStateException(result.optString("message").ifBlank { "Nexray gagal menyiapkan video." })
         }
+
         val medias = result.optJSONArray("medias") ?: result.optJSONArray("formats") ?: JSONArray()
-        buildList {
+        val parsed = buildList {
             for (i in 0 until medias.length()) {
                 val item = medias.optJSONObject(i) ?: continue
                 val url = item.firstString("url", "downloadUrl", "download_url")
                 if (!isHttpUrl(url)) continue
-                val type = item.firstString("type", "mediaType").lowercase(Locale.ROOT)
+
                 val mime = item.firstString("mimeType", "mime_type", "mime")
-                val ext = item.firstString("ext", "extension").ifBlank { mime.substringAfterLast('/', "mp4").substringBefore(';') }
+                val ext = item.firstString("ext", "extension")
+                    .ifBlank { mime.substringAfterLast('/', "mp4").substringBefore(';') }
+                    .lowercase(Locale.ROOT)
+                val type = item.firstString("type", "mediaType").lowercase(Locale.ROOT)
+                    .ifBlank { if (mime.startsWith("audio/", true)) "audio" else "video" }
+                // We can save MP4 video tracks and M4A audio tracks. Other containers are
+                // intentionally omitted because the offline library stores MP4 videos.
+                if (type == "video" && ext != "mp4") continue
+                if (type == "audio" && ext !in setOf("m4a", "mp4")) continue
+                if (type !in setOf("video", "audio")) continue
+
+                val qualityText = item.firstString("quality", "label")
                 val height = item.optInt("height", 0).takeIf { it > 0 }
-                    ?: Regex("(\\d{3,4})p", RegexOption.IGNORE_CASE).find(item.firstString("quality", "label"))?.groupValues?.get(1)?.toIntOrNull()
-                val hasAudio = item.optBoolean("is_audio", false) || (!item.isNull("audioQuality") && item.has("audioQuality")) ||
-                    Regex("mp4a|aac|opus|vorbis", RegexOption.IGNORE_CASE).containsMatchIn(mime)
-                // This app stores videos as video.mp4, so exclude non-MP4 containers rather than mislabel them.
-                if (type.isNotBlank() && type != "video") continue
-                if (!ext.equals("mp4", true) || type == "audio") continue
+                    ?: Regex("(\\d{3,4})p", RegexOption.IGNORE_CASE).find(qualityText)?.groupValues?.get(1)?.toIntOrNull()
+                val codecsHaveAudio = Regex("mp4a|aac", RegexOption.IGNORE_CASE).containsMatchIn(mime)
+                val audioQuality = item.opt("audioQuality")
+                val hasAudio = item.optBoolean("is_audio", false) ||
+                    (audioQuality != null && audioQuality != JSONObject.NULL && audioQuality.toString().isNotBlank()) ||
+                    codecsHaveAudio
+                val size = item.optLong("fileSizeBytes", item.optLong("filesize", item.optLong("size", 0L))).takeIf { it > 0L }
+                    ?: Regex("[?&]clen=(\\d+)").find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
                 add(
                     NexrayMediaFormat(
                         label = item.firstString("label", "quality").ifBlank { "${height ?: "Auto"}p" },
-                        quality = item.firstString("quality", "label").ifBlank { "${height ?: "Auto"}p" },
-                        mimeType = mime.ifBlank { "video/${ext.ifBlank { "mp4" }}" },
+                        quality = qualityText.ifBlank { "${height ?: "Auto"}p" },
+                        mimeType = mime.ifBlank { if (type == "audio") "audio/mp4" else "video/mp4" },
                         directUrl = url,
-                        fileSizeBytes = item.optLong("fileSizeBytes", item.optLong("size", 0L)).takeIf { it > 0L },
+                        fileSizeBytes = size,
                         height = height,
                         fps = item.optInt("fps", 0),
                         bitrate = item.optLong("bitrate", 0L),
                         hasAudio = hasAudio,
                         extension = ext,
+                        formatId = item.firstString("formatId", "format_id", "itag"),
+                        mediaType = type,
                     )
                 )
             }
-        }.sortedWith(compareBy<NexrayMediaFormat> { it.height ?: Int.MAX_VALUE }.thenByDescending { it.hasAudio }.thenByDescending { it.bitrate })
-            .distinctBy { it.height ?: it.quality }
+        }
+        val videos = parsed.filter { it.mediaType == "video" }
+            .sortedWith(compareBy<NexrayMediaFormat> { it.height ?: Int.MAX_VALUE }
+                .thenByDescending { it.hasAudio }
+                .thenByDescending { it.fps }
+                .thenByDescending { it.bitrate })
+            // Keep the muxed format when the API has one for the same resolution.
+            .distinctBy { "${it.height ?: it.quality}:${it.fps}" }
+        val audio = parsed.filter { it.mediaType == "audio" }
+            .sortedWith(compareByDescending<NexrayMediaFormat> { it.bitrate })
+        (videos + audio).also { cache(youtubeMediaCache, youtubeUrl, it) }
     }
 
     private fun getJson(url: String): JSONObject {
@@ -223,4 +290,6 @@ data class NexrayMediaFormat(
     val bitrate: Long = 0L,
     val hasAudio: Boolean = false,
     val extension: String = "mp4",
+    val formatId: String = "",
+    val mediaType: String = "video",
 )

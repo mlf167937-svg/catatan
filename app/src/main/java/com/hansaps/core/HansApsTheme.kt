@@ -10,7 +10,7 @@ object HansColors {
     val Surface = Color(0xFF13151C)
     val SurfaceRaised = Color(0xFF1B1E27)
     val Border = Color(0xFF2C303A)
-    val Lime = Color(0xFFC8F169)
+    val Lime = Color(0xFF83C8FF)
     val Coral = Color(0xFFFF654D)
     val Orange = Color(0xFFF59A54)
     val Text = Color(0xFFF5F6F0)

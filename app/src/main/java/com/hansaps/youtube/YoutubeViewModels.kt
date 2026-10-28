@@ -71,13 +71,13 @@ class YoutubeViewModel : ViewModel() {
             mutableMessage.value = "Meminta opsi kualitas dari Nexray…"
             try {
                 val formats = NexrayApi.resolveYoutubeMedia(video.url)
-                val withAudio = formats.filter { it.hasAudio }
-                val selectable = if (withAudio.isNotEmpty()) withAudio else formats
-                mutableOptions.value = YoutubeDownloadManager.toOptions(selectable)
+                val videos = formats.filter { it.mediaType == "video" && it.extension.equals("mp4", true) }
+                val audioUrl = formats.firstOrNull { it.mediaType == "audio" && it.extension.equals("m4a", true) }?.directUrl
+                mutableOptions.value = YoutubeDownloadManager.toOptions(videos, audioUrl)
                 mutableMessage.value = when {
-                    selectable.isEmpty() -> "Nexray tidak mengembalikan format video yang bisa diputar."
-                    withAudio.isEmpty() -> "Format tersedia, tetapi tidak ada format dengan audio gabungan. Pemutaran dan download offline penuh mungkin tidak tersedia untuk video ini."
-                    else -> "${withAudio.size} kualitas dengan audio tersedia."
+                    videos.isEmpty() -> "Nexray tidak mengembalikan format video MP4."
+                    audioUrl != null && videos.any { !it.hasAudio } -> "${videos.size} opsi MP4 tersedia. Video tanpa audio gabungan akan digabung dengan audio M4A saat diputar dan diunduh."
+                    else -> "${videos.size} opsi MP4 tersedia dari respons Nexray."
                 }
             } catch (error: Throwable) {
                 mutableMessage.value = error.message ?: "Gagal mengambil opsi kualitas dari Nexray."
@@ -88,8 +88,8 @@ class YoutubeViewModel : ViewModel() {
     }
 
     fun downloadOption(context: Context, video: NexrayYoutubeVideo, option: YoutubeDownloadOption) {
-        if (!option.hasAudio) {
-            mutableMessage.value = "Nexray mengembalikan video tanpa audio gabungan. Pilih format bertanda audio agar file offline memiliki suara."
+        if (!option.hasAudio && option.audioUrl.isNullOrBlank()) {
+            mutableMessage.value = "Video ini tidak memiliki audio gabungan dan Nexray tidak menyediakan audio M4A untuk digabungkan."
             return
         }
         viewModelScope.launch {
@@ -102,6 +102,7 @@ class YoutubeViewModel : ViewModel() {
                     directUrl = option.directUrl,
                     quality = option.quality,
                     thumbnailUrl = video.thumbnail.ifBlank { null },
+                    audioUrl = option.audioUrl.takeUnless { option.hasAudio },
                     sourceLabel = "Nexray API",
                 ),
             )

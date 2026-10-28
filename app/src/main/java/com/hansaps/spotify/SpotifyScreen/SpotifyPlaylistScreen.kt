@@ -54,16 +54,17 @@ fun SpotifyPlaylistScreen(
     LazyColumn(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Playlist pribadi", color = HansColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
-                Text("Playlist.ini menjadi sumber daftar lagu. File lokal diprioritaskan.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("HANS MIX", color = HansColors.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)
+                Text("Playlist pilihanmu", color = HansColors.Text, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("HansAps mengecek koleksi offline dahulu, lalu mencari track yang belum ada melalui Nexray. Susunan playlist tetap mengikuti Playlist.ini.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
             }
         }
         items(playlists, key = { it.name }) { playlist ->
             Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Surface(color = HansColors.Surface, shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, HansColors.Border)) {
                     Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Surface(shape = RoundedCornerShape(14.dp), color = HansColors.Coral.copy(alpha = 0.14f)) {
-                            Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = HansColors.Coral, modifier = Modifier.padding(11.dp).size(23.dp))
+                        Surface(shape = RoundedCornerShape(14.dp), color = HansColors.Lime.copy(alpha = 0.14f)) {
+                            Icon(Icons.Rounded.QueueMusic, contentDescription = null, tint = HansColors.Lime, modifier = Modifier.padding(11.dp).size(23.dp))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(playlist.name, color = HansColors.Text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
@@ -72,7 +73,7 @@ fun SpotifyPlaylistScreen(
                         Button(
                             onClick = { onPlayAll(playlist.tracks) },
                             shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(containerColor = HansColors.Lime, contentColor = Color(0xFF15190D)),
+                            colors = ButtonDefaults.buttonColors(containerColor = HansColors.Lime, contentColor = Color(0xFF0B1721)),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
                             modifier = Modifier.size(39.dp),
                         ) { Icon(Icons.Rounded.PlayArrow, contentDescription = "Putar playlist") }
@@ -95,7 +96,7 @@ fun SpotifyPlaylistScreen(
                                 Text(entry.artist, color = HansColors.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             Surface(shape = CircleShape, color = if (existsOffline) HansColors.Lime.copy(alpha = 0.15f) else HansColors.SurfaceRaised) {
-                                Text(if (existsOffline) "OFFLINE" else "ONLINE", modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), color = if (existsOffline) HansColors.Lime else HansColors.Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                Text(if (existsOffline) "OFFLINE FIRST" else "NEXRAY", modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp), color = if (existsOffline) HansColors.Lime else HansColors.Muted, fontSize = 7.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }

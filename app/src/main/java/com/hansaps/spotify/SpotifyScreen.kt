@@ -1,6 +1,8 @@
 package com.hansaps.spotify
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
@@ -11,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +23,7 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.QueueMusic
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -53,7 +57,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 private enum class SpotifyTab(val label: String) {
-    HOME("Dengar"), PLAYLISTS("Playlist"), COLLECTION("Koleksi"), DOWNLOAD("Cari musik")
+    HOME("Dengar"), PLAYLISTS("Playlist"), COLLECTION("Koleksi"), DOWNLOAD("Cari"), SYNC("Sync")
 }
 
 @Composable
@@ -100,11 +104,11 @@ fun SpotifyScreen(onBack: () -> Unit) {
             Icon(Icons.Rounded.MusicNote, contentDescription = null, tint = HansColors.Lime, modifier = Modifier.size(23.dp))
         }
 
-        Row(Modifier.fillMaxWidth().background(HansColors.Surface, RoundedCornerShape(16.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth().background(HansColors.Surface, RoundedCornerShape(16.dp)).horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             SpotifyTab.entries.forEach { tab ->
                 Surface(
                     onClick = { selectedTab = tab },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.width(70.dp),
                     shape = RoundedCornerShape(12.dp),
                     color = if (selectedTab == tab) HansColors.Lime else Color.Transparent,
                 ) {
@@ -115,13 +119,14 @@ fun SpotifyScreen(onBack: () -> Unit) {
                                 SpotifyTab.PLAYLISTS -> Icons.Rounded.QueueMusic
                                 SpotifyTab.COLLECTION -> Icons.Rounded.LibraryMusic
                                 SpotifyTab.DOWNLOAD -> Icons.Rounded.CloudDownload
+                                SpotifyTab.SYNC -> Icons.Rounded.Sync
                             },
                             contentDescription = null,
                             tint = if (selectedTab == tab) Color(0xFF15190D) else HansColors.Muted,
                             modifier = Modifier.size(16.dp),
                         )
                         Spacer(Modifier.size(5.dp))
-                        Text(tab.label, color = if (selectedTab == tab) Color(0xFF15190D) else HansColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(tab.label, color = if (selectedTab == tab) Color(0xFF0B1721) else HansColors.Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -184,6 +189,7 @@ fun SpotifyScreen(onBack: () -> Unit) {
                 onDownload = { vm.downloadOnlineTrack(context, it) },
                 modifier = Modifier.weight(1f),
             )
+            SpotifyTab.SYNC -> SpotifySyncScreen(modifier = Modifier.weight(1f))
         }
 
         if (selectedTab != SpotifyTab.HOME && controller?.currentMediaItem != null) {

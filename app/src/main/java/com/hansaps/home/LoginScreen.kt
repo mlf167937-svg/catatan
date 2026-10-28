@@ -62,7 +62,7 @@ fun LoginScreen(
     Box(
         modifier = Modifier.fillMaxSize().background(HansColors.Background).windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        Box(Modifier.fillMaxWidth().height(350.dp).background(Brush.verticalGradient(listOf(Color(0xFF1B2514), HansColors.Background))))
+        Box(Modifier.fillMaxWidth().height(350.dp).background(Brush.verticalGradient(listOf(Color(0xFF102B43), HansColors.Background))))
         Column(
             modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 22.dp, vertical = 26.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
@@ -72,7 +72,7 @@ fun LoginScreen(
                 Text("Ruang pribadimu.", color = HansColors.Text, fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp)
                 Text("Musik, video, dan koleksi dalam satu tempat.", color = HansColors.Muted, fontSize = 14.sp)
             }
-            Box(Modifier.fillMaxWidth().height(134.dp).clip(RoundedCornerShape(22.dp)).background(Brush.linearGradient(listOf(Color(0xFF29351E), Color(0xFF141915), Color(0xFF36211F))))) {
+            Box(Modifier.fillMaxWidth().height(134.dp).clip(RoundedCornerShape(22.dp)).background(Brush.linearGradient(listOf(Color(0xFF173C5A), Color(0xFF101923), Color(0xFF202B37))))) {
                 Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = 0.2f), Color.Transparent))))
                 Column(Modifier.align(Alignment.BottomStart).padding(15.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("HANSAPS V1", color = HansColors.Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.8.sp)

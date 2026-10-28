@@ -27,6 +27,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import com.hansaps.R
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,15 +45,12 @@ import androidx.media3.ui.PlayerView
 @Composable
 fun HansWordmark(modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(11.dp))
-                .background(Brush.linearGradient(listOf(HansColors.Lime, Color(0xFF98C65C)))),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("H", fontSize = 21.sp, fontWeight = FontWeight.Black, color = Color(0xFF12160B))
-        }
+        androidx.compose.foundation.Image(
+            painter = painterResource(id = R.drawable.ic_hansaps),
+            contentDescription = "Logo HansAps",
+            modifier = Modifier.size(42.dp).clip(RoundedCornerShape(11.dp)),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        )
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Text("HansAps", color = HansColors.Text, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = (-0.4).sp)
             Text("PERSONAL MEDIA SPACE", color = HansColors.Muted, fontSize = 8.sp, letterSpacing = 1.6.sp)

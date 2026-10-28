@@ -16,6 +16,7 @@ import com.hansaps.core.PlaylistParser
 import com.hansaps.spotify.Engine.AuthorizedAudioSource
 import com.hansaps.spotify.Engine.DownloaderMusic
 import com.hansaps.spotify.Engine.QueueEngine
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -105,7 +106,7 @@ class SpotifyViewModel : ViewModel() {
                 }
                 runCatching { findRemote(entry) }.getOrNull()?.let { remote ->
                     runCatching {
-                        val directUrl = NexrayApi.resolveSpotifyAudio(remote.url)
+                        val directUrl = resolveAudioWithFallback(remote)
                         tracks += remote.toRemoteLocalTrack(directUrl)
                     }
                 }
@@ -134,7 +135,7 @@ class SpotifyViewModel : ViewModel() {
 
     private suspend fun playOnlineInternal(context: Context, track: NexraySpotifyTrack) {
         mutableMessage.value = "Menyiapkan audio dari Nexray…"
-        val stream = NexrayApi.resolveSpotifyAudio(track.url)
+        val stream = resolveAudioWithFallback(track)
         PlaybackConnector.play(context, track.toRemoteLocalTrack(stream))
         mutableMessage.value = "Memutar ${track.title} — ${track.artist} dari Nexray."
     }
@@ -143,7 +144,7 @@ class SpotifyViewModel : ViewModel() {
         viewModelScope.launch {
             mutableMessage.value = "Mengunduh audio dan mengambil metadata dari Nexray…"
             val result = runCatching {
-                val stream = NexrayApi.resolveSpotifyAudio(track.url)
+                val stream = resolveAudioWithFallback(track)
                 val lyrics = runCatching { NexrayApi.searchLyrics(track.title, track.artist) }.getOrDefault(NexrayLyrics())
                 DownloaderMusic().download(
                     context.applicationContext,
@@ -185,16 +186,68 @@ class SpotifyViewModel : ViewModel() {
     fun notify(message: String) { mutableMessage.value = message }
     fun consumeMessage() { mutableMessage.value = null }
 
+    /** Mirrors RexMusic's resolver strategy: try the selected Spotify URL first, then search by title/artist if it fails. */
+    private suspend fun resolveAudioWithFallback(track: NexraySpotifyTrack): String {
+        var initialError: Exception? = null
+        try {
+            return NexrayApi.resolveSpotifyAudio(track.url)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            initialError = error
+        }
+
+        val candidates = try {
+            NexrayApi.searchSpotify("${track.artist} ${track.title}".trim())
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (error: Exception) {
+            throw initialError ?: error
+        }
+        val best = candidates
+            .map { it to matchScore(track.title, track.artist, it.title, it.artist) }
+            .filter { it.second > 0 && it.first.url != track.url }
+            .maxByOrNull { it.second }
+            ?.first
+            ?: throw (initialError ?: IllegalStateException("Audio lagu tidak ditemukan dari Nexray."))
+
+        return try {
+            NexrayApi.resolveSpotifyAudio(best.url)
+        } catch (cancel: CancellationException) {
+            throw cancel
+        } catch (fallbackError: Exception) {
+            initialError?.let(fallbackError::addSuppressed)
+            throw fallbackError
+        }
+    }
+
     private suspend fun findRemote(entry: PlaylistEntry): NexraySpotifyTrack? {
         val results = NexrayApi.searchSpotify("${entry.artist} ${entry.title}")
-        val targetTitle = normalize(entry.title)
-        val targetArtist = normalize(entry.artist)
-        return results.maxByOrNull { item ->
-            val title = normalize(item.title)
-            val artist = normalize(item.artist)
-            (if (title == targetTitle) 6 else if (title.contains(targetTitle) || targetTitle.contains(title)) 3 else 0) +
-                (if (artist == targetArtist) 5 else if (artist.contains(targetArtist) || targetArtist.contains(artist)) 2 else 0)
+        return results
+            .map { it to matchScore(entry.title, entry.artist, it.title, it.artist) }
+            .filter { it.second > 0 }
+            .maxByOrNull { it.second }
+            ?.first
+    }
+
+    private fun matchScore(targetTitleRaw: String, targetArtistRaw: String, candidateTitleRaw: String, candidateArtistRaw: String): Int {
+        val targetTitle = normalize(targetTitleRaw)
+        val targetArtist = normalize(targetArtistRaw)
+        val title = normalize(candidateTitleRaw)
+        val artist = normalize(candidateArtistRaw)
+        val titleScore = when {
+            targetTitle.isBlank() || title.isBlank() -> 0
+            title == targetTitle -> 6
+            title.contains(targetTitle) || targetTitle.contains(title) -> 3
+            else -> 0
         }
+        val artistScore = when {
+            targetArtist.isBlank() || artist.isBlank() -> 0
+            artist == targetArtist -> 5
+            artist.contains(targetArtist) || targetArtist.contains(artist) -> 2
+            else -> 0
+        }
+        return titleScore + artistScore
     }
 
     private fun NexraySpotifyTrack.toRemoteLocalTrack(streamUrl: String) = LocalTrack(

@@ -85,10 +85,11 @@ fun YoutubeScreen(onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var selectedQuality by remember { mutableStateOf<String?>(null) }
     var playingUrl by remember { mutableStateOf<String?>(null) }
+    var playingAudioUrl by remember { mutableStateOf<String?>(null) }
     var playingTitle by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { vm.refresh(context.applicationContext) }
-    LaunchedEffect(options) { selectedQuality = options.firstOrNull()?.quality }
+    LaunchedEffect(options) { selectedQuality = (options.firstOrNull { it.hasAudio } ?: options.firstOrNull())?.quality }
 
     Column(
         modifier = Modifier.fillMaxSize().background(HansColors.Background).windowInsetsPadding(WindowInsets.safeDrawing).padding(horizontal = 18.dp, vertical = 14.dp),
@@ -152,13 +153,17 @@ fun YoutubeScreen(onBack: () -> Unit) {
                         selectedQuality = selectedQuality,
                         preparing = preparing,
                         onSelectQuality = { selectedQuality = it.quality },
-                        onPlay = { option -> playingTitle = selectedVideo!!.title; playingUrl = option.directUrl },
+                        onPlay = { option ->
+                            playingTitle = selectedVideo!!.title
+                            playingUrl = option.directUrl
+                            playingAudioUrl = option.audioUrl.takeUnless { option.hasAudio }
+                        },
                         onDownload = { option -> vm.downloadOption(context, selectedVideo!!, option) },
                     )
                 }
 
                 if (playingUrl != null) {
-                    OnlineVideoPlayer(url = playingUrl!!, title = playingTitle, onClose = { playingUrl = null })
+                    OnlineVideoPlayer(url = playingUrl!!, audioUrl = playingAudioUrl, title = playingTitle, onClose = { playingUrl = null; playingAudioUrl = null })
                 }
 
                 if (results.isEmpty() && !searching) {
@@ -242,7 +247,10 @@ private fun SelectedVideoPanel(
                 }
             }
             val chosen = options.firstOrNull { it.quality == selectedQuality } ?: options.first()
-            Text("${chosen.mimeType}${chosen.fileSizeBytes?.let { " • ${it / (1024 * 1024)} MB" } ?: ""}${if (chosen.hasAudio) " • audio" else " • video tanpa audio"}", color = HansColors.Muted, fontSize = 9.sp)
+            Text(
+                "${chosen.mimeType}${chosen.fileSizeBytes?.let { " • ${it / (1024 * 1024)} MB" } ?: ""}${if (chosen.hasAudio) " • audio included" else if (!chosen.audioUrl.isNullOrBlank()) " • video + M4A" else " • video only"}",
+                color = HansColors.Muted, fontSize = 9.sp
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { onPlay(chosen) },
@@ -256,7 +264,7 @@ private fun SelectedVideoPanel(
                 }
                 Button(
                     onClick = { onDownload(chosen) },
-                    enabled = chosen.hasAudio,
+                    enabled = chosen.hasAudio || !chosen.audioUrl.isNullOrBlank(),
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = HansColors.Coral, contentColor = Color.White),
@@ -266,7 +274,7 @@ private fun SelectedVideoPanel(
                     Text("Download", fontSize = 11.sp)
                 }
             }
-            if (!chosen.hasAudio) Text("Format ini tidak memiliki audio gabungan, jadi tidak bisa disimpan sebagai video offline ber-suara.", color = HansColors.Muted, fontSize = 10.sp, lineHeight = 14.sp)
+            if (!chosen.hasAudio && chosen.audioUrl.isNullOrBlank()) Text("Format ini tidak memiliki audio gabungan dan API tidak mengembalikan track M4A pendamping.", color = HansColors.Muted, fontSize = 10.sp, lineHeight = 14.sp)
         } else if (!preparing) {
             Text("Nexray tidak menyediakan opsi kualitas untuk video ini.", color = HansColors.Muted, fontSize = 11.sp)
         }
@@ -274,11 +282,19 @@ private fun SelectedVideoPanel(
 }
 
 @Composable
-private fun OnlineVideoPlayer(url: String, title: String, onClose: () -> Unit) {
+private fun OnlineVideoPlayer(url: String, audioUrl: String?, title: String, onClose: () -> Unit) {
     val context = LocalContext.current
-    val player = remember(url) {
+    val player = remember(url, audioUrl) {
         ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+            val factory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+            val videoSource = factory.createMediaSource(MediaItem.fromUri(Uri.parse(url)))
+            val source = if (!audioUrl.isNullOrBlank()) {
+                androidx.media3.exoplayer.source.MergingMediaSource(
+                    videoSource,
+                    factory.createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl))),
+                )
+            } else videoSource
+            setMediaSource(source)
             repeatMode = Player.REPEAT_MODE_OFF
             prepare()
             playWhenReady = true
