@@ -115,7 +115,7 @@ object RexMusicApi {
             val fractionMs = when (rawFraction.length) { 1 -> fraction * 100L; 2 -> fraction * 10L; 3 -> fraction; else -> 0L }
             val text = match.groupValues[4].trim()
             if (text.isBlank()) null else LyricLine(minutes * 60_000L + seconds * 1_000L + fractionMs, text, match.groupValues[0].substringAfter('[').substringBefore(']'))
-        }.sortedBy { it.timeMs }
+        }.sortedBy { it.timeMs }.toList()
         return Lyrics(plain = plain, synced = synced, durationSeconds = data.optInt("duration", 0).coerceAtLeast(0))
     }
 
