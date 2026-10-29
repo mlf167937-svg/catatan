@@ -1,6 +1,7 @@
 package com.hansaps.youtube.screens
 
 import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -39,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -56,7 +59,6 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
-import com.hansaps.core.HansColors
 import com.hansaps.core.LocalVideo
 import com.hansaps.youtube.ui.PressScale
 import com.hansaps.youtube.ui.YtEmptyState
@@ -69,13 +71,14 @@ fun YoutubeCollection(
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var selectedVideo by remember { mutableStateOf<LocalVideo?>(null) }
+    var selectedVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedVideo = videos.firstOrNull { it.id == selectedVideoId }
 
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CollectionHeader(count = videos.size, onRefresh = onRefresh)
 
-        // Pemutar muncul dengan animasi; ganti video cukup dengan mengetuk baris lain.
-        selectedVideo?.let { LocalVideoPlayer(video = it, onClose = { selectedVideo = null }) }
+        // Pemutar muncul dengan animasi; ID pilihan dipertahankan saat perangkat diputar.
+        selectedVideo?.let { LocalVideoPlayer(video = it, onClose = { selectedVideoId = null }) }
 
         if (videos.isEmpty()) {
             YtEmptyState(
@@ -93,7 +96,7 @@ fun YoutubeCollection(
                         video = video,
                         index = index,
                         selected = selectedVideo?.id == video.id,
-                        onClick = { selectedVideo = video },
+                        onClick = { selectedVideoId = video.id },
                     )
                 }
             }
@@ -111,10 +114,10 @@ private fun CollectionHeader(count: Int, onRefresh: () -> Unit) {
     )
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("Koleksi video", color = HansColors.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Koleksi video", color = YtPalette.Text, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(
                 "$count video • tersimpan di Download/HansAps/Youtube",
-                color = HansColors.Muted,
+                color = YtPalette.Muted,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -126,8 +129,8 @@ private fun CollectionHeader(count: Int, onRefresh: () -> Unit) {
                 onRefresh()
             },
             shape = RoundedCornerShape(50),
-            color = HansColors.SurfaceRaised,
-            border = BorderStroke(1.dp, HansColors.Border),
+            color = YtPalette.SurfaceAlt,
+            border = BorderStroke(1.dp, YtPalette.Border),
         ) {
             Row(
                 Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
@@ -136,11 +139,11 @@ private fun CollectionHeader(count: Int, onRefresh: () -> Unit) {
                 Icon(
                     Icons.Rounded.Refresh,
                     contentDescription = null,
-                    tint = HansColors.Muted,
+                    tint = YtPalette.Muted,
                     modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = rotation },
                 )
                 Spacer(Modifier.size(6.dp))
-                Text("Refresh", color = HansColors.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                Text("Refresh", color = YtPalette.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
             }
         }
     }
@@ -155,7 +158,7 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
         entrance.targetState = true
     }
     val background by animateColorAsState(
-        targetValue = if (selected) HansColors.Coral.copy(alpha = .12f) else HansColors.Surface,
+        targetValue = if (selected) YtPalette.Red.copy(alpha = .12f) else YtPalette.Surface,
         animationSpec = tween(300),
         label = "collectionRowBackground",
     )
@@ -168,7 +171,7 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
             color = background,
-            border = BorderStroke(1.dp, if (selected) HansColors.Coral else HansColors.Border),
+            border = BorderStroke(1.dp, if (selected) YtPalette.Red else YtPalette.Border),
         ) {
             Row(
                 Modifier.padding(12.dp),
@@ -185,14 +188,14 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
                     Icon(
                         if (selected) Icons.Rounded.PlayArrow else Icons.Rounded.Movie,
                         contentDescription = null,
-                        tint = HansColors.Coral,
+                        tint = YtPalette.Red,
                         modifier = Modifier.size(26.dp),
                     )
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         video.title,
-                        color = HansColors.Text,
+                        color = YtPalette.Text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
@@ -200,7 +203,7 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
                     )
                     Text(
                         "${video.displayName} • Offline",
-                        color = HansColors.Muted,
+                        color = YtPalette.Muted,
                         fontSize = 10.sp,
                     )
                 }
@@ -208,14 +211,14 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
                     Modifier
                         .clip(RoundedCornerShape(50))
                         .background(
-                            if (selected) HansColors.Coral.copy(alpha = .18f) else Color.Transparent,
+                            if (selected) YtPalette.Red.copy(alpha = .18f) else Color.Transparent,
                             RoundedCornerShape(50),
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     Text(
                         if (selected) "SEDANG" else "PUTAR",
-                        color = HansColors.Coral,
+                        color = YtPalette.Red,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -228,6 +231,7 @@ private fun CollectionRow(video: LocalVideo, index: Int, selected: Boolean, onCl
 @Composable
 private fun LocalVideoPlayer(video: LocalVideo, onClose: () -> Unit) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val exo = remember(video.uri) { buildLocalPlayer(context, video) }
     DisposableEffect(exo) { onDispose { exo.release() } }
     val entrance = remember(video.uri) { MutableTransitionState(false).apply { targetState = true } }
@@ -240,7 +244,7 @@ private fun LocalVideoPlayer(video: LocalVideo, onClose: () -> Unit) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     video.title,
-                    color = HansColors.Text,
+                    color = YtPalette.Text,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
@@ -248,13 +252,13 @@ private fun LocalVideoPlayer(video: LocalVideo, onClose: () -> Unit) {
                     overflow = TextOverflow.Ellipsis,
                 )
                 IconButton(onClick = onClose) {
-                    Icon(Icons.Rounded.Close, contentDescription = "Tutup", tint = HansColors.Coral)
+                    Icon(Icons.Rounded.Close, contentDescription = "Tutup", tint = YtPalette.Red)
                 }
             }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(210.dp)
+                    .height(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 150.dp else 210.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(Color.Black),
             ) {

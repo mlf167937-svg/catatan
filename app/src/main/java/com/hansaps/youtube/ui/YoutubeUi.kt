@@ -47,13 +47,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.hansaps.core.HansColors
 
 /** Gradien dan warna aksen bersama untuk seluruh modul YouTube. */
 internal object YtPalette {
-    val AccentBrush: Brush = Brush.linearGradient(listOf(HansColors.Coral, Color(0xFFFFA26B)))
+    // Palette inspired by YouTube's neutral surfaces, typography, and signature red.
+    val Background = Color(0xFFFFFFFF)
+    val Surface = Color(0xFFFFFFFF)
+    val SurfaceAlt = Color(0xFFF2F2F2)
+    val Border = Color(0xFFE5E5E5)
+    val Text = Color(0xFF0F0F0F)
+    val Muted = Color(0xFF606060)
+    val Red = Color(0xFFFF0033)
+    val AccentBrush: Brush = Brush.linearGradient(listOf(Red, Color(0xFFE62117)))
     val AccentSoftBrush: Brush = Brush.linearGradient(
-        listOf(HansColors.Coral.copy(alpha = .28f), Color(0xFFFFA26B).copy(alpha = .10f)),
+        listOf(Red.copy(alpha = .12f), Red.copy(alpha = .04f)),
     )
 }
 
@@ -63,7 +70,7 @@ internal fun PressScale(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(18.dp),
-    color: Color = HansColors.Surface,
+    color: Color = YtPalette.Surface,
     border: BorderStroke? = null,
     content: @Composable () -> Unit,
 ) {
@@ -97,11 +104,10 @@ internal fun GlassIconButton(
         onClick = onClick,
         modifier = modifier.size(42.dp),
         shape = CircleShape,
-        color = HansColors.SurfaceRaised,
-        border = BorderStroke(1.dp, HansColors.Border),
+        color = Color.Transparent,
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription = description, tint = HansColors.Text, modifier = Modifier.size(20.dp))
+            Icon(icon, contentDescription = description, tint = YtPalette.Text, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -121,7 +127,7 @@ internal fun LiveDot() {
             .size(6.dp)
             .graphicsLayer { alpha = dotAlpha }
             .clip(CircleShape)
-            .background(HansColors.Coral),
+            .background(YtPalette.Red),
     )
 }
 
@@ -143,7 +149,7 @@ internal fun rememberShimmerShift(): Float {
 internal fun ShimmerBlock(shift: Float, modifier: Modifier = Modifier) {
     Spacer(
         modifier
-            .background(HansColors.SurfaceRaised)
+            .background(YtPalette.SurfaceAlt)
             .drawBehind {
                 val w = size.width
                 drawRect(
@@ -191,14 +197,14 @@ internal fun YtEmptyState(
                     .background(YtPalette.AccentSoftBrush),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(icon, contentDescription = null, tint = HansColors.Coral, modifier = Modifier.size(40.dp))
+                Icon(icon, contentDescription = null, tint = YtPalette.Red, modifier = Modifier.size(40.dp))
             }
             Spacer(Modifier.size(18.dp))
-            Text(title, color = HansColors.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(title, color = YtPalette.Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.size(6.dp))
             Text(
                 body,
-                color = HansColors.Muted,
+                color = YtPalette.Muted,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,
                 textAlign = TextAlign.Center,

@@ -1,6 +1,10 @@
 package com.hansaps.youtube
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -13,11 +17,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -30,7 +32,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -38,14 +42,18 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +67,7 @@ import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -78,6 +87,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -87,6 +98,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -104,7 +116,6 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
-import com.hansaps.core.HansColors
 import com.hansaps.core.NexrayYoutubeVideo
 import com.hansaps.youtube.Engine.YoutubeDownloadOption
 import com.hansaps.youtube.screens.YoutubeCollection
@@ -127,6 +138,19 @@ private data class OnlinePlayback(
     val quality: String,
 )
 
+/** Keeps the active media selection when Android recreates the Activity after rotation. */
+private val OnlinePlaybackStateSaver = Saver<OnlinePlayback?, List<String>>(
+    save = { value -> value?.let { listOf(it.url, it.audioUrl.orEmpty(), it.title, it.quality) } ?: emptyList() },
+    restore = { saved ->
+        if (saved.size < 4) null else OnlinePlayback(
+            url = saved[0],
+            audioUrl = saved[1].ifBlank { null },
+            title = saved[2],
+            quality = saved[3],
+        )
+    },
+)
+
 @Composable
 fun YoutubeScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -139,15 +163,16 @@ fun YoutubeScreen(onBack: () -> Unit) {
     val preparing by vm.preparing.collectAsState()
     val message by vm.message.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(VideoTab.SEARCH) }
-    var query by remember { mutableStateOf("") }
-    var selectedQuality by remember { mutableStateOf<String?>(null) }
-    var playback by remember { mutableStateOf<OnlinePlayback?>(null) }
-    var shownVideo by remember { mutableStateOf<NexrayYoutubeVideo?>(null) }
-    var lastMessage by remember { mutableStateOf("") }
-    var autoStartedVideoKey by remember { mutableStateOf<String?>(null) }
-    var requestedVideoKey by remember { mutableStateOf<String?>(null) }
-    var loadingSeenVideoKey by remember { mutableStateOf<String?>(null) }
+    var selectedTab by rememberSaveable { mutableStateOf(VideoTab.SEARCH) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var selectedQuality by rememberSaveable { mutableStateOf<String?>(null) }
+    var playback by rememberSaveable(stateSaver = OnlinePlaybackStateSaver) { mutableStateOf<OnlinePlayback?>(null) }
+    // The ViewModel survives configuration changes, so the currently resolved video can be restored.
+    var shownVideo by remember { mutableStateOf<NexrayYoutubeVideo?>(selectedVideo) }
+    var lastMessage by rememberSaveable { mutableStateOf("") }
+    var autoStartedVideoKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var requestedVideoKey by rememberSaveable { mutableStateOf<String?>(null) }
+    var loadingSeenVideoKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     // Animasi masuk header; dipicu sekali saat layar dibuka.
     val headerEntrance = remember { MutableTransitionState(false).apply { targetState = true } }
@@ -171,143 +196,175 @@ fun YoutubeScreen(onBack: () -> Unit) {
         autoStartedVideoKey = video.url
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(HansColors.Background)
-            .drawBehind {
-                // Cahaya ambient di bagian atas agar layar terasa lebih berdimensi.
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(HansColors.Coral.copy(alpha = .16f), Color.Transparent),
-                        startY = 0f,
-                        endY = size.height * .35f,
-                    ),
+    val configuration = LocalConfiguration.current
+    val orientationDescription = if (configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
+        "Ubah ke landscape"
+    } else {
+        "Ubah ke portrait"
+    }
+
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().background(YtPalette.Background),
+    ) {
+        val useNavigationRail = maxWidth >= 760.dp
+        Row(Modifier.fillMaxSize().background(YtPalette.Background)) {
+            if (useNavigationRail) {
+                SideNavigationRail(
+                    selected = selectedTab,
+                    onSelect = { selectedTab = it },
                 )
             }
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(top = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        AnimatedVisibility(
-            visibleState = headerEntrance,
-            enter = fadeIn(tween(450)) + slideInVertically(tween(450, easing = FastOutSlowInEasing)) { -it / 3 },
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GlassIconButton(onClick = onBack, icon = Icons.Rounded.ArrowBack, description = "Kembali")
-                Spacer(Modifier.size(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("HansAps YouTube", color = HansColors.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    Text("Cari, pilih kualitas, dan simpan offline", color = HansColors.Muted, fontSize = 11.sp)
-                }
-                Box(
-                    Modifier.size(42.dp).clip(RoundedCornerShape(14.dp)).background(YtPalette.AccentBrush),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
-                }
-            }
-        }
 
-        AnimatedVisibility(
-            visible = message != null,
-            enter = fadeIn(tween(250)) + slideInVertically(tween(300)) { -it / 2 },
-            exit = fadeOut(tween(200)) + slideOutVertically(tween(200)) { -it / 2 },
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
-                color = HansColors.SurfaceRaised,
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, HansColors.Border),
+            Column(
+                modifier = (if (useNavigationRail) Modifier.weight(1f) else Modifier.fillMaxWidth())
+                    .fillMaxHeight()
+                    .background(YtPalette.Background)
+                    .drawBehind {
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(YtPalette.Red.copy(alpha = .035f), Color.Transparent),
+                                startY = 0f,
+                                endY = size.height * .22f,
+                            ),
+                        )
+                    }
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                AnimatedVisibility(
+                    visibleState = headerEntrance,
+                    enter = fadeIn(tween(350)) + slideInVertically(tween(400, easing = FastOutSlowInEasing)) { -it / 4 },
                 ) {
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(YtPalette.AccentBrush))
-                    Spacer(Modifier.size(10.dp))
-                    Text(
-                        lastMessage,
-                        color = HansColors.Text,
-                        fontSize = 11.sp,
-                        lineHeight = 16.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                    TextButton(onClick = vm::consumeMessage) {
-                        Text("OK", color = HansColors.Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        GlassIconButton(onClick = onBack, icon = Icons.Rounded.ArrowBack, description = "Kembali")
+                        Spacer(Modifier.size(10.dp))
+                        Box(
+                            Modifier.size(width = 38.dp, height = 28.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(YtPalette.AccentBrush),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.PlayArrow, contentDescription = "YouTube", tint = Color.White, modifier = Modifier.size(22.dp))
+                        }
+                        Spacer(Modifier.size(9.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                            Text("YouTube", color = YtPalette.Text, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.65).sp)
+                            Text("HansAps · video dan offline", color = YtPalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        GlassIconButton(
+                            onClick = {
+                                context.findActivity()?.requestedOrientation = if (
+                                    configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                                ) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            },
+                            icon = Icons.Rounded.ScreenRotation,
+                            description = orientationDescription,
+                        )
                     }
                 }
-            }
-        }
 
-        AnimatedContent(
-            targetState = selectedTab,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            transitionSpec = {
-                // Geser ke arah tab tujuan: kanan untuk tab berikutnya, kiri untuk sebelumnya.
-                val forward = targetState.ordinal > initialState.ordinal
-                (slideInHorizontally(tween(340, easing = FastOutSlowInEasing)) { if (forward) it / 6 else -it / 6 } +
-                    fadeIn(tween(260)))
-                    .togetherWith(
-                        slideOutHorizontally(tween(340, easing = FastOutSlowInEasing)) { if (forward) -it / 6 else it / 6 } +
-                            fadeOut(tween(180)),
-                    )
-            },
-            label = "tabContent",
-        ) { tab ->
-            when (tab) {
-                VideoTab.SEARCH -> SearchPane(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                    query = query,
-                    onQueryChange = { query = it },
-                    onSearch = { if (query.isNotBlank()) vm.search(query) },
-                    searching = searching,
-                    results = results,
-                    selectedVideo = selectedVideo,
-                    shownVideo = shownVideo,
-                    options = options,
-                    preparing = preparing,
-                    selectedQuality = selectedQuality,
-                    playback = playback,
-                    onSelectVideo = { video ->
-                        autoStartedVideoKey = null
-                        requestedVideoKey = video.url
-                        loadingSeenVideoKey = null
-                        playback = null
-                        shownVideo = video
-                        vm.prepareVideo(video)
-                    },
-                    onSelectQuality = { selectedQuality = it.quality },
-                    onPlay = { option ->
-                        shownVideo?.let { video ->
-                            selectedQuality = option.quality
-                            playback = OnlinePlayback(
-                                url = option.directUrl,
-                                audioUrl = option.audioUrl.takeUnless { option.hasAudio },
-                                title = video.title,
-                                quality = option.quality,
+                AnimatedVisibility(
+                    visible = message != null,
+                    enter = fadeIn(tween(220)) + slideInVertically(tween(250)) { -it / 3 },
+                    exit = fadeOut(tween(180)) + slideOutVertically(tween(180)) { -it / 3 },
+                ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
+                        color = YtPalette.SurfaceAlt,
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(YtPalette.Red))
+                            Spacer(Modifier.size(9.dp))
+                            Text(
+                                lastMessage,
+                                color = YtPalette.Text,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp,
+                                modifier = Modifier.weight(1f),
                             )
+                            TextButton(onClick = vm::consumeMessage) {
+                                Text("OK", color = YtPalette.Red, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
                         }
+                    }
+                }
+
+                AnimatedContent(
+                    targetState = selectedTab,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        (slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { if (forward) it / 10 else -it / 10 } +
+                            fadeIn(tween(220)))
+                            .togetherWith(
+                                slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { if (forward) -it / 10 else it / 10 } +
+                                    fadeOut(tween(160)),
+                            )
                     },
-                    onDownload = { option -> selectedVideo?.let { vm.downloadOption(context, it, option) } },
-                    onClosePlayer = { playback = null; autoStartedVideoKey = null },
-                )
-                VideoTab.COLLECTION -> YoutubeCollection(
-                    videos = videos,
-                    onRefresh = { vm.refresh(context) },
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 14.dp),
-                )
+                    label = "tabContent",
+                ) { tab ->
+                    when (tab) {
+                        VideoTab.SEARCH -> SearchPane(
+                            modifier = Modifier.fillMaxSize().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
+                            query = query,
+                            onQueryChange = { query = it },
+                            onSearch = { if (query.isNotBlank()) vm.search(query) },
+                            searching = searching,
+                            results = results,
+                            selectedVideo = selectedVideo,
+                            shownVideo = shownVideo,
+                            options = options,
+                            preparing = preparing,
+                            selectedQuality = selectedQuality,
+                            playback = playback,
+                            onSelectVideo = { video ->
+                                autoStartedVideoKey = null
+                                requestedVideoKey = video.url
+                                loadingSeenVideoKey = null
+                                playback = null
+                                shownVideo = video
+                                vm.prepareVideo(video)
+                            },
+                            onSelectQuality = { selectedQuality = it.quality },
+                            onPlay = { option ->
+                                shownVideo?.let { video ->
+                                    selectedQuality = option.quality
+                                    playback = OnlinePlayback(
+                                        url = option.directUrl,
+                                        audioUrl = option.audioUrl.takeUnless { option.hasAudio },
+                                        title = video.title,
+                                        quality = option.quality,
+                                    )
+                                }
+                            },
+                            onDownload = { option -> selectedVideo?.let { vm.downloadOption(context, it, option) } },
+                            onClosePlayer = { playback = null; autoStartedVideoKey = null },
+                        )
+                        VideoTab.COLLECTION -> YoutubeCollection(
+                            videos = videos,
+                            onRefresh = { vm.refresh(context) },
+                            modifier = Modifier.fillMaxSize().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
+                        )
+                    }
+                }
+
+                if (!useNavigationRail) {
+                    FloatingTabBar(
+                        selected = selectedTab,
+                        onSelect = { selectedTab = it },
+                        modifier = Modifier.padding(bottom = 2.dp),
+                    )
+                }
             }
         }
-
-        FloatingTabBar(
-            selected = selectedTab,
-            onSelect = { selectedTab = it },
-            modifier = Modifier.padding(bottom = 4.dp),
-        )
     }
 }
 
@@ -316,11 +373,9 @@ private fun FloatingTabBar(selected: VideoTab, onSelect: (VideoTab) -> Unit, mod
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp)
-            .clip(RoundedCornerShape(26.dp))
-            .background(HansColors.SurfaceRaised.copy(alpha = .94f))
-            .border(1.dp, HansColors.Border, RoundedCornerShape(26.dp))
-            .padding(6.dp),
+            .background(YtPalette.Background)
+            .border(BorderStroke(1.dp, YtPalette.Border))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         TabPill(
@@ -339,50 +394,84 @@ private fun FloatingTabBar(selected: VideoTab, onSelect: (VideoTab) -> Unit, mod
 }
 
 @Composable
-private fun RowScope.TabPill(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, selected: Boolean, onClick: () -> Unit) {
-    // Pill aktif melebar dan menampilkan label; pill lain mengecil menjadi ikon saja.
-    val rowWeight by animateFloatAsState(
-        targetValue = if (selected) 1.7f else 1f,
-        animationSpec = tween(350, easing = FastOutSlowInEasing),
-        label = "pillWeight",
-    )
-    val background by animateColorAsState(
-        targetValue = if (selected) HansColors.Coral.copy(alpha = .16f) else Color.Transparent,
-        animationSpec = tween(300),
-        label = "pillBackground",
-    )
-    val tint by animateColorAsState(
-        targetValue = if (selected) HansColors.Coral else HansColors.Muted,
-        animationSpec = tween(300),
-        label = "pillTint",
-    )
-    Row(
+private fun SideNavigationRail(selected: VideoTab, onSelect: (VideoTab) -> Unit) {
+    Column(
         modifier = Modifier
-            .weight(rowWeight)
-            .height(46.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(background)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.Center,
+            .width(82.dp)
+            .fillMaxHeight()
+            .background(YtPalette.Background)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .border(BorderStroke(1.dp, YtPalette.Border))
+            .padding(horizontal = 7.dp, vertical = 14.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(20.dp))
-        AnimatedVisibility(
-            visible = selected,
-            enter = fadeIn(tween(250)) + expandHorizontally(tween(300)),
-            exit = fadeOut(tween(150)) + shrinkHorizontally(tween(200)),
+        Box(
+            Modifier.size(width = 38.dp, height = 28.dp).clip(RoundedCornerShape(8.dp)).background(YtPalette.AccentBrush),
+            contentAlignment = Alignment.Center,
         ) {
-            Text(
-                label,
-                modifier = Modifier.padding(start = 8.dp),
-                color = tint,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
+            Icon(Icons.Rounded.PlayArrow, contentDescription = "YouTube", tint = Color.White, modifier = Modifier.size(22.dp))
         }
+        Spacer(Modifier.size(4.dp))
+        NavigationRailItem("Jelajahi", Icons.Rounded.Search, selected == VideoTab.SEARCH) { onSelect(VideoTab.SEARCH) }
+        NavigationRailItem("Koleksi", Icons.Rounded.VideoLibrary, selected == VideoTab.COLLECTION) { onSelect(VideoTab.COLLECTION) }
     }
+}
+
+@Composable
+private fun NavigationRailItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (selected) YtPalette.Red.copy(alpha = .08f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 11.dp, horizontal = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = if (selected) YtPalette.Red else YtPalette.Text, modifier = Modifier.size(23.dp))
+        Text(label, color = if (selected) YtPalette.Red else YtPalette.Text, fontSize = 9.sp, maxLines = 1, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+    }
+}
+
+@Composable
+private fun RowScope.TabPill(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val tint by animateColorAsState(
+        targetValue = if (selected) YtPalette.Red else YtPalette.Text,
+        animationSpec = tween(220),
+        label = "tabTint",
+    )
+    Column(
+        modifier = Modifier
+            .weight(1f)
+            .height(52.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) YtPalette.Red.copy(alpha = .07f) else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(vertical = 5.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(21.dp))
+        Text(label, color = tint, fontSize = 10.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @Composable
@@ -464,35 +553,33 @@ private fun SearchBar(query: String, onQueryChange: (String) -> Unit, searching:
             onValueChange = onQueryChange,
             modifier = Modifier.weight(1f),
             singleLine = true,
-            placeholder = { Text("Cari video, channel, atau topik", color = HansColors.Muted, fontSize = 13.sp) },
-            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = HansColors.Muted) },
-            shape = RoundedCornerShape(18.dp),
+            placeholder = { Text("Cari video, channel, atau topik", color = YtPalette.Muted, fontSize = 13.sp) },
+            leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null, tint = YtPalette.Muted) },
+            shape = RoundedCornerShape(28.dp),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSearch() }),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = HansColors.Coral,
-                unfocusedBorderColor = HansColors.Border,
-                focusedContainerColor = HansColors.Surface,
-                unfocusedContainerColor = HansColors.Surface,
-                focusedTextColor = HansColors.Text,
-                unfocusedTextColor = HansColors.Text,
-                cursorColor = HansColors.Coral,
+                focusedBorderColor = YtPalette.Red,
+                unfocusedBorderColor = YtPalette.Border,
+                focusedContainerColor = YtPalette.Surface,
+                unfocusedContainerColor = YtPalette.Surface,
+                focusedTextColor = YtPalette.Text,
+                unfocusedTextColor = YtPalette.Text,
+                cursorColor = YtPalette.Red,
             ),
         )
         PressScale(
             onClick = { if (enabled) onSearch() },
-            modifier = Modifier.size(56.dp).graphicsLayer { alpha = searchAlpha },
-            shape = RoundedCornerShape(18.dp),
-            color = Color.Transparent,
+            modifier = Modifier.size(52.dp).graphicsLayer { alpha = searchAlpha },
+            shape = RoundedCornerShape(26.dp),
+            color = YtPalette.SurfaceAlt,
+            border = BorderStroke(1.dp, YtPalette.Border),
         ) {
-            Box(
-                Modifier.fillMaxSize().background(YtPalette.AccentBrush),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (searching) {
-                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
+                    CircularProgressIndicator(Modifier.size(19.dp), strokeWidth = 2.dp, color = YtPalette.Red)
                 } else {
-                    Icon(Icons.Rounded.Search, contentDescription = "Cari", tint = Color.White)
+                    Icon(Icons.Rounded.Search, contentDescription = "Cari", tint = YtPalette.Text)
                 }
             }
         }
@@ -508,7 +595,7 @@ private fun ShimmerList() {
                 Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(20.dp))
-                    .background(HansColors.Surface)
+                    .background(YtPalette.Surface)
                     .padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -531,19 +618,90 @@ private fun ResultsList(
     onSelect: (NexrayYoutubeVideo) -> Unit,
 ) {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("${results.size} hasil", color = HansColors.Muted, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            contentPadding = PaddingValues(bottom = 16.dp),
-        ) {
-            itemsIndexed(results, key = { _, video -> video.url }) { index, video ->
-                VideoSearchRow(
-                    video = video,
-                    index = index,
-                    selected = selectedVideo?.url == video.url,
-                    onSelect = { onSelect(video) },
+        Text("${results.size} hasil", color = YtPalette.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            if (maxWidth >= 620.dp) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 270.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                    contentPadding = PaddingValues(start = 2.dp, end = 2.dp, top = 4.dp, bottom = 18.dp),
+                ) {
+                    items(results, key = { it.url }) { video ->
+                        VideoSearchCard(
+                            video = video,
+                            selected = selectedVideo?.url == video.url,
+                            onSelect = { onSelect(video) },
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(17.dp),
+                    contentPadding = PaddingValues(start = 1.dp, end = 1.dp, bottom = 18.dp, top = 3.dp),
+                ) {
+                    items(results, key = { it.url }) { video ->
+                        VideoSearchCard(
+                            video = video,
+                            selected = selectedVideo?.url == video.url,
+                            onSelect = { onSelect(video) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoSearchCard(video: NexrayYoutubeVideo, selected: Boolean, onSelect: () -> Unit) {
+    PressScale(
+        onClick = onSelect,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(13.dp),
+        color = if (selected) YtPalette.Red.copy(alpha = .035f) else YtPalette.Background,
+        border = if (selected) BorderStroke(1.dp, YtPalette.Red.copy(alpha = .65f)) else null,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(3.dp)) {
+            Box(
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(YtPalette.SurfaceAlt),
+            ) {
+                AsyncImage(
+                    model = video.thumbnail.ifBlank { null },
+                    contentDescription = "Thumbnail ${video.title}",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
                 )
+                if (video.duration.isNotBlank()) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color.Black.copy(alpha = .82f),
+                    ) {
+                        Text(video.duration, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth().padding(top = 11.dp, start = 3.dp, end = 3.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Box(
+                    Modifier.size(35.dp).clip(CircleShape).background(YtPalette.SurfaceAlt),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.Movie, contentDescription = null, tint = YtPalette.Muted, modifier = Modifier.size(19.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(video.title, color = YtPalette.Text, fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(video.channel.ifBlank { "YouTube" }, color = YtPalette.Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(video.views.takeIf { it.isNotBlank() } ?: "Video", color = YtPalette.Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }
@@ -558,7 +716,7 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
         entrance.targetState = true
     }
     val background by animateColorAsState(
-        targetValue = if (selected) HansColors.Coral.copy(alpha = .12f) else HansColors.Surface,
+        targetValue = if (selected) YtPalette.Red.copy(alpha = .12f) else YtPalette.Surface,
         animationSpec = tween(300),
         label = "rowBackground",
     )
@@ -571,7 +729,7 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
             color = background,
-            border = BorderStroke(1.dp, if (selected) HansColors.Coral else HansColors.Border),
+            border = BorderStroke(1.dp, if (selected) YtPalette.Red else YtPalette.Border),
         ) {
             Row(
                 Modifier.padding(10.dp),
@@ -582,7 +740,7 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
                     Modifier
                         .size(width = 108.dp, height = 68.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(HansColors.SurfaceRaised),
+                        .background(YtPalette.SurfaceAlt),
                 ) {
                     AsyncImage(
                         model = video.thumbnail.ifBlank { null },
@@ -615,7 +773,7 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
                         video.title,
-                        color = HansColors.Text,
+                        color = YtPalette.Text,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 2,
@@ -623,14 +781,14 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
                     )
                     Text(
                         video.channel.ifBlank { "YouTube" },
-                        color = HansColors.Muted,
+                        color = YtPalette.Muted,
                         fontSize = 10.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
                         listOf(video.views.takeIf { it.isNotBlank() }?.let { "$it views" }).filterNotNull().filter { it.isNotBlank() }.joinToString(" • "),
-                        color = HansColors.Muted,
+                        color = YtPalette.Muted,
                         fontSize = 9.sp,
                     )
                 }
@@ -638,14 +796,14 @@ private fun VideoSearchRow(video: NexrayYoutubeVideo, index: Int, selected: Bool
                     Modifier
                         .clip(RoundedCornerShape(50))
                         .background(
-                            if (selected) HansColors.Coral.copy(alpha = .18f) else Color.Transparent,
+                            if (selected) YtPalette.Red.copy(alpha = .18f) else Color.Transparent,
                             RoundedCornerShape(50),
                         )
                         .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     Text(
                         if (selected) "DIPILIH" else "PILIH",
-                        color = HansColors.Coral,
+                        color = YtPalette.Red,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                     )
@@ -670,10 +828,10 @@ private fun SelectedVideoPanel(
             .fillMaxWidth()
             .animateContentSize()
             .clip(RoundedCornerShape(22.dp))
-            .background(HansColors.Surface)
+            .background(YtPalette.Surface)
             .border(
                 1.dp,
-                Brush.linearGradient(listOf(HansColors.Coral.copy(alpha = .55f), Color.Transparent)),
+                Brush.linearGradient(listOf(YtPalette.Red.copy(alpha = .55f), Color.Transparent)),
                 RoundedCornerShape(22.dp),
             )
             .padding(14.dp),
@@ -681,7 +839,7 @@ private fun SelectedVideoPanel(
     ) {
         Text(
             video.title,
-            color = HansColors.Text,
+            color = YtPalette.Text,
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             maxLines = 2,
@@ -689,14 +847,14 @@ private fun SelectedVideoPanel(
         )
         if (preparing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = HansColors.Coral)
-                Text("Memuat kualitas dari Nexray…", color = HansColors.Muted, fontSize = 11.sp)
+                CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = YtPalette.Red)
+                Text("Memuat kualitas dari Nexray…", color = YtPalette.Muted, fontSize = 11.sp)
             }
         } else if (options.isNotEmpty()) {
             val chosen = options.firstOrNull { it.quality == selectedQuality } ?: options.first()
             Text(
                 "PILIH KUALITAS",
-                color = HansColors.Muted,
+                color = YtPalette.Muted,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.1.sp,
@@ -713,7 +871,7 @@ private fun SelectedVideoPanel(
             Text(
                 "${chosen.mimeType}${chosen.fileSizeBytes?.let { " • ${it / (1024 * 1024)} MB" } ?: ""}" +
                     if (chosen.hasAudio) " • audio included" else if (!chosen.audioUrl.isNullOrBlank()) " • video + M4A" else " • video only",
-                color = HansColors.Muted,
+                color = YtPalette.Muted,
                 fontSize = 9.sp,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -721,7 +879,7 @@ private fun SelectedVideoPanel(
                     onClick = { onPlay(chosen) },
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = HansColors.SurfaceRaised, contentColor = HansColors.Text),
+                    colors = ButtonDefaults.buttonColors(containerColor = YtPalette.SurfaceAlt, contentColor = YtPalette.Text),
                 ) {
                     Icon(Icons.Rounded.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(4.dp))
@@ -732,7 +890,7 @@ private fun SelectedVideoPanel(
                     enabled = chosen.hasAudio || !chosen.audioUrl.isNullOrBlank(),
                     modifier = Modifier.weight(1f).height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = HansColors.Coral, contentColor = Color.White),
+                    colors = ButtonDefaults.buttonColors(containerColor = YtPalette.Red, contentColor = Color.White),
                 ) {
                     Icon(Icons.Rounded.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(4.dp))
@@ -742,13 +900,13 @@ private fun SelectedVideoPanel(
             if (!chosen.hasAudio && chosen.audioUrl.isNullOrBlank()) {
                 Text(
                     "Format ini tidak memiliki audio gabungan dan API tidak mengembalikan track M4A pendamping.",
-                    color = HansColors.Muted,
+                    color = YtPalette.Muted,
                     fontSize = 10.sp,
                     lineHeight = 14.sp,
                 )
             }
         } else {
-            Text("Nexray tidak menyediakan opsi kualitas untuk video ini.", color = HansColors.Muted, fontSize = 11.sp)
+            Text("Nexray tidak menyediakan opsi kualitas untuk video ini.", color = YtPalette.Muted, fontSize = 11.sp)
         }
     }
 }
@@ -756,7 +914,7 @@ private fun SelectedVideoPanel(
 @Composable
 private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val background by animateColorAsState(
-        targetValue = if (selected) HansColors.Coral else HansColors.SurfaceRaised,
+        targetValue = if (selected) YtPalette.Red else YtPalette.SurfaceAlt,
         animationSpec = tween(260),
         label = "chipBackground",
     )
@@ -770,7 +928,7 @@ private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
         modifier = Modifier.graphicsLayer { scaleX = scale; scaleY = scale },
         shape = RoundedCornerShape(12.dp),
         color = background,
-        border = BorderStroke(1.dp, if (selected) HansColors.Coral else HansColors.Border),
+        border = BorderStroke(1.dp, if (selected) YtPalette.Red else YtPalette.Border),
     ) {
         Text(
             label,
@@ -809,7 +967,8 @@ private fun createPlayerView(context: Context, exo: ExoPlayer): PlayerView =
 @Composable
 private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
     val context = LocalContext.current
-    var fullscreen by remember(playback) { mutableStateOf(false) }
+    var fullscreen by rememberSaveable(playback.url) { mutableStateOf(false) }
+    val configuration = LocalConfiguration.current
     val exo = remember(playback.url, playback.audioUrl) { buildOnlinePlayer(context, playback.url, playback.audioUrl) }
     DisposableEffect(exo) { onDispose { exo.release() } }
     val entrance = remember(playback) { MutableTransitionState(false).apply { targetState = true } }
@@ -823,7 +982,7 @@ private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(
                         playback.title,
-                        color = HansColors.Text,
+                        color = YtPalette.Text,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -833,20 +992,20 @@ private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
                         LiveDot()
                         Text(
                             "Memutar • ${playback.quality.ifBlank { "360p default" }}",
-                            color = HansColors.Muted,
+                            color = YtPalette.Muted,
                             fontSize = 9.sp,
                         )
                     }
                 }
                 IconButton(onClick = { fullscreen = true }) {
-                    Icon(Icons.Rounded.Fullscreen, contentDescription = "Layar penuh", tint = HansColors.Text)
+                    Icon(Icons.Rounded.Fullscreen, contentDescription = "Layar penuh", tint = YtPalette.Text)
                 }
-                TextButton(onClick = onClose) { Text("Tutup", color = HansColors.Coral, fontSize = 11.sp) }
+                TextButton(onClick = onClose) { Text("Tutup", color = YtPalette.Red, fontSize = 11.sp) }
             }
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(220.dp)
+                    .height(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 150.dp else 220.dp)
                     .clip(RoundedCornerShape(20.dp))
                     .background(Color.Black),
             ) {
@@ -877,6 +1036,21 @@ private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
                 ) {
                     IconButton(onClick = { fullscreen = false }) {
                         Icon(Icons.Rounded.Close, contentDescription = "Keluar dari layar penuh", tint = Color.White)
+                    }
+                }
+                Surface(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = .55f),
+                ) {
+                    IconButton(
+                        onClick = {
+                            context.findActivity()?.requestedOrientation = if (
+                                configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                            ) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        },
+                    ) {
+                        Icon(Icons.Rounded.ScreenRotation, contentDescription = "Ubah orientasi layar", tint = Color.White)
                     }
                 }
                 Surface(
