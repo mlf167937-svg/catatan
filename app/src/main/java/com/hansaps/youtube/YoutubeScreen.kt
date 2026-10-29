@@ -65,6 +65,8 @@ import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Search
@@ -73,6 +75,8 @@ import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -114,6 +118,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -155,6 +160,11 @@ private val OnlinePlaybackStateSaver = Saver<OnlinePlayback?, List<String>>(
 @Composable
 fun YoutubeScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    DisposableEffect(Unit) {
+        onDispose {
+            context.findActivity()?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
     val vm: YoutubeViewModel = viewModel()
     val videos by vm.localVideos.collectAsState()
     val results by vm.searchResults.collectAsState()
@@ -334,7 +344,18 @@ fun YoutubeScreen(onBack: () -> Unit) {
                                 shownVideo = video
                                 vm.prepareVideo(video)
                             },
-                            onSelectQuality = { selectedQuality = it.quality },
+                            onSelectQuality = { option ->
+                                selectedQuality = option.quality
+                                shownVideo?.let { video ->
+                                    playback = OnlinePlayback(
+                                        url = option.directUrl,
+                                        audioUrl = option.audioUrl.takeUnless { option.hasAudio },
+                                        title = video.title,
+                                        quality = option.quality,
+                                    )
+                                    autoStartedVideoKey = video.url
+                                }
+                            },
                             onPlay = { option ->
                                 shownVideo?.let { video ->
                                     selectedQuality = option.quality
@@ -495,45 +516,100 @@ private fun SearchPane(
     onDownload: (YoutubeDownloadOption) -> Unit,
     onClosePlayer: () -> Unit,
 ) {
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SearchBar(query = query, onQueryChange = onQueryChange, searching = searching, onSearch = onSearch)
-
-        AnimatedVisibility(
-            visible = selectedVideo != null && shownVideo != null,
-            enter = fadeIn(tween(260)) + expandVertically(tween(340, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(260)),
-        ) {
-            shownVideo?.let { video ->
+    val watchPage = playback != null && shownVideo != null
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(if (watchPage) 8.dp else 12.dp)) {
+        if (watchPage) {
+            val activePlayback = requireNotNull(playback)
+            val activeVideo = requireNotNull(shownVideo)
+            OnlineVideoPlayer(
+                playback = activePlayback,
+                options = options,
+                onSelectQuality = onSelectQuality,
+                onClose = onClosePlayer,
+            )
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    activeVideo.title,
+                    color = YtPalette.Text,
+                    fontSize = 16.sp,
+                    lineHeight = 21.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    buildString {
+                        append(activeVideo.channel.ifBlank { "YouTube" })
+                        if (activeVideo.views.isNotBlank()) append("  •  ${activeVideo.views} views")
+                        append("  •  ${activePlayback.quality}")
+                    },
+                    color = YtPalette.Muted,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (options.isNotEmpty()) {
                 SelectedVideoPanel(
-                    video = video,
+                    video = activeVideo,
                     options = options,
-                    selectedQuality = selectedQuality,
+                    selectedQuality = selectedQuality ?: activePlayback.quality,
                     preparing = preparing,
                     onSelectQuality = onSelectQuality,
                     onPlay = onPlay,
                     onDownload = onDownload,
+                    showTitle = false,
                 )
             }
-        }
-
-        playback?.let { OnlineVideoPlayer(playback = it, onClose = onClosePlayer) }
-
-        // Fase: 0 = memuat, 1 = kosong, 2 = ada hasil. Crossfade menjaga perpindahan tetap halus.
-        val phase = when {
-            searching -> 0
-            results.isEmpty() -> 1
-            else -> 2
-        }
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-            Crossfade(targetState = phase, animationSpec = tween(320), label = "resultsPhase") { current ->
-                when (current) {
-                    0 -> ShimmerList()
-                    1 -> YtEmptyState(
-                        icon = Icons.Rounded.Movie,
-                        title = "Jelajahi video dari Nexray",
-                        body = "Ketuk video untuk langsung diputar pada 360p. Ganti kualitas atau simpan offline dari panel video.",
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Video lainnya", color = YtPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                TextButton(onClick = onClosePlayer) { Text("Kembali ke jelajah", color = YtPalette.Red, fontSize = 11.sp) }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
+            }
+        } else {
+            SearchBar(query = query, onQueryChange = onQueryChange, searching = searching, onSearch = onSearch)
+            AnimatedVisibility(
+                visible = selectedVideo != null && shownVideo != null,
+                enter = fadeIn(tween(260)) + expandVertically(tween(340, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(160)) + shrinkVertically(tween(260)),
+            ) {
+                shownVideo?.let { video ->
+                    SelectedVideoPanel(
+                        video = video,
+                        options = options,
+                        selectedQuality = selectedQuality,
+                        preparing = preparing,
+                        onSelectQuality = onSelectQuality,
+                        onPlay = onPlay,
+                        onDownload = onDownload,
                     )
-                    else -> ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
+                }
+            }
+            val phase = when {
+                searching -> 0
+                results.isEmpty() -> 1
+                else -> 2
+            }
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                Crossfade(targetState = phase, animationSpec = tween(320), label = "resultsPhase") { current ->
+                    when (current) {
+                        0 -> ShimmerList()
+                        1 -> YtEmptyState(
+                            icon = Icons.Rounded.Movie,
+                            title = "Jelajahi video dari Nexray",
+                            body = "Ketuk video untuk langsung diputar. Ganti kualitas atau simpan video untuk ditonton offline.",
+                        )
+                        else -> ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
+                    }
                 }
             }
         }
@@ -823,6 +899,7 @@ private fun SelectedVideoPanel(
     onSelectQuality: (YoutubeDownloadOption) -> Unit,
     onPlay: (YoutubeDownloadOption) -> Unit,
     onDownload: (YoutubeDownloadOption) -> Unit,
+    showTitle: Boolean = true,
 ) {
     Column(
         modifier = Modifier
@@ -838,14 +915,16 @@ private fun SelectedVideoPanel(
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text(
-            video.title,
-            color = YtPalette.Text,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        if (showTitle) {
+            Text(
+                video.title,
+                color = YtPalette.Text,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (preparing) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = YtPalette.Red)
@@ -941,80 +1020,104 @@ private fun QualityChip(label: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-private fun buildOnlinePlayer(context: Context, url: String, audioUrl: String?): ExoPlayer =
-    ExoPlayer.Builder(context).build().apply {
-        val factory = DefaultMediaSourceFactory(context)
-        val videoSource = factory.createMediaSource(MediaItem.fromUri(Uri.parse(url)))
-        val source = if (!audioUrl.isNullOrBlank()) {
-            MergingMediaSource(videoSource, factory.createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl))))
-        } else {
-            videoSource
-        }
-        setMediaSource(source)
-        repeatMode = Player.REPEAT_MODE_OFF
-        prepare()
-        playWhenReady = true
-    }
+private fun createOnlineMediaSource(context: Context, url: String, audioUrl: String?): MediaSource {
+    val factory = DefaultMediaSourceFactory(context)
+    val videoSource = factory.createMediaSource(MediaItem.fromUri(Uri.parse(url)))
+    return if (!audioUrl.isNullOrBlank()) {
+        MergingMediaSource(videoSource, factory.createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl))))
+    } else videoSource
+}
 
 private fun createPlayerView(context: Context, exo: ExoPlayer): PlayerView =
     PlayerView(context).apply {
-        this.player = exo
+        player = exo
         useController = true
         resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
         setShutterBackgroundColor(android.graphics.Color.BLACK)
         setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
+        setKeepContentOnPlayerReset(true)
     }
 
 @Composable
-private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
+private fun OnlineVideoPlayer(
+    playback: OnlinePlayback,
+    options: List<YoutubeDownloadOption>,
+    onSelectQuality: (YoutubeDownloadOption) -> Unit,
+    onClose: () -> Unit,
+) {
     val context = LocalContext.current
-    var fullscreen by rememberSaveable(playback.url) { mutableStateOf(false) }
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
+    var qualityMenuExpanded by rememberSaveable { mutableStateOf(false) }
     val configuration = LocalConfiguration.current
-    val exo = remember(playback.url, playback.audioUrl) { buildOnlinePlayer(context, playback.url, playback.audioUrl) }
-    DisposableEffect(exo) { onDispose { exo.release() } }
-    val entrance = remember(playback) { MutableTransitionState(false).apply { targetState = true } }
+    val exo = remember(context) { ExoPlayer.Builder(context).build().apply { repeatMode = Player.REPEAT_MODE_OFF } }
+    var lastSourceKey by remember(exo) { mutableStateOf<String?>(null) }
 
-    AnimatedVisibility(
-        visibleState = entrance,
-        enter = fadeIn(tween(350)) + expandVertically(tween(420, easing = FastOutSlowInEasing)),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        playback.title,
-                        color = YtPalette.Text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        LiveDot()
-                        Text(
-                            "Memutar • ${playback.quality.ifBlank { "360p default" }}",
-                            color = YtPalette.Muted,
-                            fontSize = 9.sp,
+    // Keep one ExoPlayer instance while changing resolution. The selected rendition is swapped
+    // in-place and resumes at the current playhead instead of restarting the video from 00:00.
+    val sourceKey = playback.url + "\u0000" + playback.audioUrl.orEmpty()
+    LaunchedEffect(sourceKey, exo) {
+        if (lastSourceKey != sourceKey) {
+            val firstSource = lastSourceKey == null
+            val resumeAt = exo.currentPosition.coerceAtLeast(0L)
+            val resumePlaying = firstSource || exo.playWhenReady
+            exo.setMediaSource(createOnlineMediaSource(context, playback.url, playback.audioUrl))
+            exo.prepare()
+            if (!firstSource && resumeAt > 0L) exo.seekTo(resumeAt)
+            exo.playWhenReady = resumePlaying
+            lastSourceKey = sourceKey
+        }
+    }
+    DisposableEffect(exo) { onDispose { exo.release() } }
+    val entrance = remember { MutableTransitionState(false).apply { targetState = true } }
+
+
+
+    if (!fullscreen) {
+        AnimatedVisibility(
+            visibleState = entrance,
+            enter = fadeIn(tween(280)) + expandVertically(tween(360, easing = FastOutSlowInEasing)),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Sedang diputar", color = YtPalette.Text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(playback.quality, color = YtPalette.Muted, fontSize = 10.sp)
+                    }
+                    Box {
+                        IconButton(onClick = { qualityMenuExpanded = true }) {
+                            Icon(Icons.Rounded.Settings, contentDescription = "Pilih resolusi", tint = YtPalette.Text)
+                        }
+                        PlayerQualityMenu(
+                            expanded = qualityMenuExpanded,
+                            options = options,
+                            activeQuality = playback.quality,
+                            onDismiss = { qualityMenuExpanded = false },
+                            onSelect = { option ->
+                                qualityMenuExpanded = false
+                                if (option.quality != playback.quality) onSelectQuality(option)
+                            },
                         )
                     }
+                    IconButton(onClick = { fullscreen = true }) {
+                        Icon(Icons.Rounded.Fullscreen, contentDescription = "Layar penuh", tint = YtPalette.Text)
+                    }
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Rounded.Close, contentDescription = "Tutup video", tint = YtPalette.Text)
+                    }
                 }
-                IconButton(onClick = { fullscreen = true }) {
-                    Icon(Icons.Rounded.Fullscreen, contentDescription = "Layar penuh", tint = YtPalette.Text)
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 184.dp else 220.dp)
+                        .clip(RoundedCornerShape(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 0.dp else 14.dp))
+                        .background(Color.Black),
+                ) {
+                    AndroidView(
+                        modifier = Modifier.fillMaxSize(),
+                        factory = { ctx -> createPlayerView(ctx, exo) },
+                        update = { it.player = exo },
+                    )
                 }
-                TextButton(onClick = onClose) { Text("Tutup", color = YtPalette.Red, fontSize = 11.sp) }
-            }
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 150.dp else 220.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color.Black),
-            ) {
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx -> createPlayerView(ctx, exo) },
-                    update = { it.player = exo },
-                )
             }
         }
     }
@@ -1031,33 +1134,52 @@ private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
                     update = { it.player = exo },
                 )
                 Surface(
-                    modifier = Modifier.align(Alignment.TopStart).padding(18.dp),
+                    modifier = Modifier.align(Alignment.TopStart).padding(14.dp),
                     shape = CircleShape,
-                    color = Color.Black.copy(alpha = .55f),
+                    color = Color.Black.copy(alpha = .58f),
                 ) {
                     IconButton(onClick = { fullscreen = false }) {
                         Icon(Icons.Rounded.Close, contentDescription = "Keluar dari layar penuh", tint = Color.White)
                     }
                 }
-                Surface(
-                    modifier = Modifier.align(Alignment.TopEnd).padding(18.dp),
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = .55f),
+                Row(
+                    modifier = Modifier.align(Alignment.TopEnd).padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(
-                        onClick = {
-                            context.findActivity()?.requestedOrientation = if (
-                                configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-                            ) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                        },
-                    ) {
-                        Icon(Icons.Rounded.ScreenRotation, contentDescription = "Ubah orientasi layar", tint = Color.White)
+                    Box {
+                        Surface(shape = CircleShape, color = Color.Black.copy(alpha = .58f)) {
+                            IconButton(onClick = { qualityMenuExpanded = true }) {
+                                Icon(Icons.Rounded.Settings, contentDescription = "Pilih resolusi", tint = Color.White)
+                            }
+                        }
+                        PlayerQualityMenu(
+                            expanded = qualityMenuExpanded,
+                            options = options,
+                            activeQuality = playback.quality,
+                            onDismiss = { qualityMenuExpanded = false },
+                            onSelect = { option ->
+                                qualityMenuExpanded = false
+                                if (option.quality != playback.quality) onSelectQuality(option)
+                            },
+                        )
+                    }
+                    Spacer(Modifier.size(5.dp))
+                    Surface(shape = CircleShape, color = Color.Black.copy(alpha = .58f)) {
+                        IconButton(
+                            onClick = {
+                                context.findActivity()?.requestedOrientation = if (
+                                    configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+                                ) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                            },
+                        ) {
+                            Icon(Icons.Rounded.ScreenRotation, contentDescription = "Ubah orientasi layar", tint = Color.White)
+                        }
                     }
                 }
                 Surface(
-                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 22.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).padding(top = 20.dp, start = 70.dp, end = 70.dp),
                     shape = RoundedCornerShape(50),
-                    color = Color.Black.copy(alpha = .55f),
+                    color = Color.Black.copy(alpha = .58f),
                 ) {
                     Text(
                         playback.title,
@@ -1068,6 +1190,36 @@ private fun OnlineVideoPlayer(playback: OnlinePlayback, onClose: () -> Unit) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun PlayerQualityMenu(
+    expanded: Boolean,
+    options: List<YoutubeDownloadOption>,
+    activeQuality: String,
+    onDismiss: () -> Unit,
+    onSelect: (YoutubeDownloadOption) -> Unit,
+) {
+    DropdownMenu(expanded = expanded, onDismissRequest = onDismiss) {
+        if (options.isEmpty()) {
+            DropdownMenuItem(text = { Text("Kualitas belum tersedia") }, onClick = onDismiss)
+        } else {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(option.label, fontWeight = if (option.quality == activeQuality) FontWeight.Bold else FontWeight.Normal)
+                            if (option.quality == activeQuality) {
+                                Icon(Icons.Rounded.Check, contentDescription = "Sedang dipakai", tint = YtPalette.Red, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    },
+                    onClick = { onSelect(option) },
+                )
             }
         }
     }

@@ -9,6 +9,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.PaddingValues
 import com.hansaps.localaccount.RexLocalAccountScreen
@@ -25,12 +32,15 @@ private enum class AppPage { HOME, SPOTIFY, YOUTUBE, LOCAL_ACCOUNT, DEVELOPER, O
 fun HansApsApp() {
     val context = LocalContext.current
     var account by remember { mutableStateOf<AppAccount?>(null) }
+    var sessionReady by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf<String?>(null) }
     var showPostLoginIntro by remember { mutableStateOf(false) }
     val history = remember { mutableStateListOf(AppPage.HOME) }
 
     LaunchedEffect(Unit) {
         AccountStore.initialize(context.applicationContext)
+        account = AccountStore.restoreSession(context.applicationContext)
+        sessionReady = true
     }
 
     fun navigate(destination: AppPage) {
@@ -50,6 +60,15 @@ fun HansApsApp() {
 
     BackHandler(enabled = account != null && history.size > 1) { goBack() }
 
+    if (!sessionReady) {
+        Surface(modifier = Modifier.fillMaxSize(), color = com.hansaps.core.HansColors.Background) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFFFF0033))
+            }
+        }
+        return
+    }
+
     val signedIn = account
     if (signedIn == null) {
         LoginScreen(
@@ -59,6 +78,7 @@ fun HansApsApp() {
                 val found = AccountStore.login(context, username, password)
                 if (found == null) loginError = "Username atau password salah."
                 else {
+                    AccountStore.saveSession(context.applicationContext, found)
                     account = found
                     loginError = null
                     showPostLoginIntro = true
@@ -84,6 +104,7 @@ fun HansApsApp() {
             onOpenDeveloper = { if (signedIn.role == UserRole.DEVELOPER) navigate(AppPage.DEVELOPER) },
             onOpenOwner = { if (signedIn.role == UserRole.OWNER) navigate(AppPage.OWNER) },
             onLogout = {
+                AccountStore.clearSession(context.applicationContext)
                 account = null
                 showPostLoginIntro = false
                 history.clear()
@@ -106,9 +127,9 @@ fun HansApsApp() {
         ) { padding -> RexLocalAccountScreen(padding) }
         AppPage.DEVELOPER -> if (signedIn.role == UserRole.DEVELOPER) {
             DeveloperScreen(account = signedIn, onBack = ::goBack)
-        } else HomeScreen(signedIn, { switchMainPage(AppPage.SPOTIFY) }, { switchMainPage(AppPage.YOUTUBE) }, { switchMainPage(AppPage.LOCAL_ACCOUNT) }, {}, {}, { account = null })
+        } else HomeScreen(signedIn, { switchMainPage(AppPage.SPOTIFY) }, { switchMainPage(AppPage.YOUTUBE) }, { switchMainPage(AppPage.LOCAL_ACCOUNT) }, {}, {}, { AccountStore.clearSession(context.applicationContext); account = null })
         AppPage.OWNER -> if (signedIn.role == UserRole.OWNER) {
             OwnerScreen(account = signedIn, onBack = ::goBack)
-        } else HomeScreen(signedIn, { switchMainPage(AppPage.SPOTIFY) }, { switchMainPage(AppPage.YOUTUBE) }, { switchMainPage(AppPage.LOCAL_ACCOUNT) }, {}, {}, { account = null })
+        } else HomeScreen(signedIn, { switchMainPage(AppPage.SPOTIFY) }, { switchMainPage(AppPage.YOUTUBE) }, { switchMainPage(AppPage.LOCAL_ACCOUNT) }, {}, {}, { AccountStore.clearSession(context.applicationContext); account = null })
     }
 }

@@ -16,6 +16,7 @@ import java.util.Locale
 object AccountStore {
     private const val PREFS = "hansaps_accounts_v1"
     private const val KEY_ACCOUNTS = "accounts_json"
+    private const val KEY_ACTIVE_SESSION = "active_session_username"
 
     @Synchronized
     fun initialize(context: Context) {
@@ -36,6 +37,29 @@ object AccountStore {
             it.username.lowercase(Locale.ROOT) == normalized &&
                 constantTimeEquals(it.passwordHash, hash(password, it.passwordSalt))
         }
+    }
+
+    /** Save only the signed-in username; never persist the plaintext password. */
+    fun saveSession(context: Context, account: AppAccount) {
+        initialize(context)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString(KEY_ACTIVE_SESSION, account.username).apply()
+    }
+
+    /** Restore the local session after configuration changes or process recreation. */
+    fun restoreSession(context: Context): AppAccount? {
+        initialize(context)
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val username = prefs.getString(KEY_ACTIVE_SESSION, null)?.trim().orEmpty()
+        if (username.isBlank()) return null
+        val account = readAccounts(context).firstOrNull { it.username.equals(username, ignoreCase = true) }
+        if (account == null) prefs.edit().remove(KEY_ACTIVE_SESSION).apply()
+        return account
+    }
+
+    fun clearSession(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().remove(KEY_ACTIVE_SESSION).apply()
     }
 
     @Synchronized
