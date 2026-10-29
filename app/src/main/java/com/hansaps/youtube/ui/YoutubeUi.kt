@@ -57,8 +57,8 @@ internal object YtPalette {
     val Border = Color(0xFFE5E5E5)
     val Text = Color(0xFF0F0F0F)
     val Muted = Color(0xFF606060)
-    val Red = Color(0xFFFF0033)
-    val AccentBrush: Brush = Brush.linearGradient(listOf(Red, Color(0xFFE62117)))
+    val Red = Color(0xFFFF0000)
+    val AccentBrush: Brush = Brush.linearGradient(listOf(Red, Color(0xFFCC0000)))
     val AccentSoftBrush: Brush = Brush.linearGradient(
         listOf(Red.copy(alpha = .12f), Red.copy(alpha = .04f)),
     )

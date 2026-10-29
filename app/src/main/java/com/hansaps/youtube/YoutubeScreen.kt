@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
@@ -45,6 +46,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -56,6 +58,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -107,6 +110,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -125,6 +129,7 @@ import coil.compose.AsyncImage
 import com.hansaps.core.NexrayYoutubeVideo
 import com.hansaps.youtube.Engine.YoutubeDownloadOption
 import com.hansaps.youtube.screens.YoutubeCollection
+import com.hansaps.youtube.screens.YoutubeLocalWatchScreen
 import com.hansaps.youtube.ui.GlassIconButton
 import com.hansaps.youtube.ui.LiveDot
 import com.hansaps.youtube.ui.PressScale
@@ -157,6 +162,17 @@ private val OnlinePlaybackStateSaver = Saver<OnlinePlayback?, List<String>>(
     },
 )
 
+/** Video yang sedang dibuka disimpan sebagai primitive agar route player tetap terjaga saat rotasi. */
+private val YoutubeVideoStateSaver = Saver<NexrayYoutubeVideo?, List<String>>(
+    save = { value -> value?.let { listOf(it.id, it.title, it.channel, it.thumbnail, it.duration, it.url, it.views, it.uploadAt) } ?: emptyList() },
+    restore = { saved ->
+        if (saved.size < 8) null else NexrayYoutubeVideo(
+            id = saved[0], title = saved[1], channel = saved[2], thumbnail = saved[3],
+            duration = saved[4], url = saved[5], views = saved[6], uploadAt = saved[7],
+        )
+    },
+)
+
 @Composable
 fun YoutubeScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -178,8 +194,11 @@ fun YoutubeScreen(onBack: () -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var selectedQuality by rememberSaveable { mutableStateOf<String?>(null) }
     var playback by rememberSaveable(stateSaver = OnlinePlaybackStateSaver) { mutableStateOf<OnlinePlayback?>(null) }
-    // The ViewModel survives configuration changes, so the currently resolved video can be restored.
-    var shownVideo by remember { mutableStateOf<NexrayYoutubeVideo?>(selectedVideo) }
+    // Keep the selected item and watch-route independent from the browse page.
+    var shownVideo by rememberSaveable(stateSaver = YoutubeVideoStateSaver) { mutableStateOf<NexrayYoutubeVideo?>(selectedVideo) }
+    var isWatchingVideo by rememberSaveable { mutableStateOf(false) }
+    var selectedLocalVideoId by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedLocalVideo = videos.firstOrNull { it.id == selectedLocalVideoId }
     var lastMessage by rememberSaveable { mutableStateOf("") }
     var autoStartedVideoKey by rememberSaveable { mutableStateOf<String?>(null) }
     var requestedVideoKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -214,6 +233,60 @@ fun YoutubeScreen(onBack: () -> Unit) {
         "Ubah ke portrait"
     }
 
+    LaunchedEffect(selectedVideo?.url) {
+        if (shownVideo == null && selectedVideo != null) shownVideo = selectedVideo
+    }
+
+    val exitWatchPage: () -> Unit = {
+        isWatchingVideo = false
+        playback = null
+        autoStartedVideoKey = null
+        requestedVideoKey = null
+        loadingSeenVideoKey = null
+    }
+    val chooseQuality: (YoutubeDownloadOption) -> Unit = { option ->
+        shownVideo?.let { video ->
+            selectedQuality = option.quality
+            playback = OnlinePlayback(
+                url = option.directUrl,
+                audioUrl = option.audioUrl.takeUnless { option.hasAudio },
+                title = video.title,
+                quality = option.quality,
+            )
+            autoStartedVideoKey = video.url
+        }
+    }
+    val startQuality: (YoutubeDownloadOption) -> Unit = { option -> chooseQuality(option) }
+
+    BackHandler(enabled = isWatchingVideo || selectedLocalVideoId != null) {
+        if (isWatchingVideo) exitWatchPage() else selectedLocalVideoId = null
+    }
+
+    if (isWatchingVideo && shownVideo != null) {
+        val activeVideo = requireNotNull(shownVideo)
+        YoutubeWatchScreen(
+            video = activeVideo,
+            playback = playback,
+            options = options,
+            preparing = preparing,
+            selectedQuality = selectedQuality,
+            message = message,
+            onDismissMessage = vm::consumeMessage,
+            onBack = exitWatchPage,
+            onSelectQuality = chooseQuality,
+            onPlay = startQuality,
+            onDownload = { option -> vm.downloadOption(context, activeVideo, option) },
+            onRetry = {
+                autoStartedVideoKey = null
+                requestedVideoKey = activeVideo.url
+                loadingSeenVideoKey = null
+                playback = null
+                vm.prepareVideo(activeVideo)
+            },
+        )
+    } else if (selectedLocalVideo != null) {
+        YoutubeLocalWatchScreen(video = selectedLocalVideo, onBack = { selectedLocalVideoId = null })
+    } else {
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(YtPalette.Background),
     ) {
@@ -331,48 +404,21 @@ fun YoutubeScreen(onBack: () -> Unit) {
                             searching = searching,
                             results = results,
                             selectedVideo = selectedVideo,
-                            shownVideo = shownVideo,
-                            options = options,
-                            preparing = preparing,
-                            selectedQuality = selectedQuality,
-                            playback = playback,
                             onSelectVideo = { video ->
                                 autoStartedVideoKey = null
                                 requestedVideoKey = video.url
                                 loadingSeenVideoKey = null
+                                selectedQuality = null
                                 playback = null
                                 shownVideo = video
+                                isWatchingVideo = true
                                 vm.prepareVideo(video)
                             },
-                            onSelectQuality = { option ->
-                                selectedQuality = option.quality
-                                shownVideo?.let { video ->
-                                    playback = OnlinePlayback(
-                                        url = option.directUrl,
-                                        audioUrl = option.audioUrl.takeUnless { option.hasAudio },
-                                        title = video.title,
-                                        quality = option.quality,
-                                    )
-                                    autoStartedVideoKey = video.url
-                                }
-                            },
-                            onPlay = { option ->
-                                shownVideo?.let { video ->
-                                    selectedQuality = option.quality
-                                    playback = OnlinePlayback(
-                                        url = option.directUrl,
-                                        audioUrl = option.audioUrl.takeUnless { option.hasAudio },
-                                        title = video.title,
-                                        quality = option.quality,
-                                    )
-                                }
-                            },
-                            onDownload = { option -> selectedVideo?.let { vm.downloadOption(context, it, option) } },
-                            onClosePlayer = { playback = null; autoStartedVideoKey = null },
                         )
                         VideoTab.COLLECTION -> YoutubeCollection(
                             videos = videos,
                             onRefresh = { vm.refresh(context) },
+                            onSelectVideo = { selectedLocalVideoId = it.id },
                             modifier = Modifier.fillMaxSize().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
                         )
                     }
@@ -387,6 +433,7 @@ fun YoutubeScreen(onBack: () -> Unit) {
                 }
             }
         }
+    }
     }
 }
 
@@ -497,6 +544,249 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 
 @Composable
+private fun YoutubeWatchScreen(
+    video: NexrayYoutubeVideo,
+    playback: OnlinePlayback?,
+    options: List<YoutubeDownloadOption>,
+    preparing: Boolean,
+    selectedQuality: String?,
+    message: String?,
+    onDismissMessage: () -> Unit,
+    onBack: () -> Unit,
+    onSelectQuality: (YoutubeDownloadOption) -> Unit,
+    onPlay: (YoutubeDownloadOption) -> Unit,
+    onDownload: (YoutubeDownloadOption) -> Unit,
+    onRetry: () -> Unit,
+) {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(YtPalette.Background)) {
+        val wideLayout = maxWidth >= 900.dp
+        val videoColumnWidth = if (wideLayout) maxWidth * .64f else maxWidth
+        val ratioHeight = videoColumnWidth * 9f / 16f
+        val heightLimit = maxHeight * (if (isLandscape) .58f else .52f)
+        val playerHeight = minOf(ratioHeight, heightLimit).coerceAtLeast(145.dp)
+
+        Column(
+            Modifier.fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .background(YtPalette.Background),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = if (wideLayout) 24.dp else 12.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                GlassIconButton(onClick = onBack, icon = Icons.Rounded.ArrowBack, description = "Kembali ke hasil")
+                Box(
+                    Modifier.size(width = 38.dp, height = 28.dp).clip(RoundedCornerShape(8.dp)).background(YtPalette.AccentBrush),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(Icons.Rounded.PlayArrow, contentDescription = "YouTube", tint = Color.White, modifier = Modifier.size(22.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text("YouTube", color = YtPalette.Text, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.5).sp)
+                    Text("Sedang diputar", color = YtPalette.Muted, fontSize = 10.sp)
+                }
+                GlassIconButton(
+                    onClick = {
+                        context.findActivity()?.requestedOrientation = if (isLandscape) {
+                            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        } else ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    },
+                    icon = Icons.Rounded.ScreenRotation,
+                    description = if (isLandscape) "Ubah ke portrait" else "Ubah ke landscape",
+                )
+            }
+
+            if (!preparing && !message.isNullOrBlank()) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = if (wideLayout) 24.dp else 12.dp, vertical = 2.dp),
+                    color = YtPalette.SurfaceAlt,
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Box(Modifier.size(7.dp).clip(CircleShape).background(YtPalette.Red))
+                        Text(message, color = YtPalette.Text, fontSize = 11.sp, lineHeight = 15.sp, modifier = Modifier.weight(1f))
+                        IconButton(onClick = onDismissMessage, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Rounded.Close, contentDescription = "Tutup pesan", tint = YtPalette.Muted, modifier = Modifier.size(17.dp))
+                        }
+                    }
+                }
+            }
+
+            if (wideLayout) {
+                Row(
+                    Modifier.weight(1f).fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(22.dp),
+                ) {
+                    Column(
+                        Modifier.weight(1.85f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                    ) {
+                        WatchVideoSurface(
+                            video = video, playback = playback, playerHeight = playerHeight,
+                            options = options, onSelectQuality = onSelectQuality, onClose = onBack,
+                            preparing = preparing, onRetry = onRetry,
+                        )
+                        WatchVideoDetails(video = video, playback = playback)
+                    }
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        WatchQualityHeading()
+                        SelectedVideoPanel(
+                            video = video,
+                            options = options,
+                            selectedQuality = selectedQuality ?: playback?.quality,
+                            preparing = preparing,
+                            onSelectQuality = onSelectQuality,
+                            onPlay = onPlay,
+                            onDownload = onDownload,
+                            showTitle = false,
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp).padding(top = 6.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    WatchVideoSurface(
+                        video = video, playback = playback, playerHeight = playerHeight,
+                        options = options, onSelectQuality = onSelectQuality, onClose = onBack,
+                        preparing = preparing, onRetry = onRetry,
+                    )
+                    WatchVideoDetails(video = video, playback = playback)
+                    WatchQualityHeading()
+                    SelectedVideoPanel(
+                        video = video,
+                        options = options,
+                        selectedQuality = selectedQuality ?: playback?.quality,
+                        preparing = preparing,
+                        onSelectQuality = onSelectQuality,
+                        onPlay = onPlay,
+                        onDownload = onDownload,
+                        showTitle = false,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchVideoSurface(
+    video: NexrayYoutubeVideo,
+    playback: OnlinePlayback?,
+    playerHeight: Dp,
+    options: List<YoutubeDownloadOption>,
+    onSelectQuality: (YoutubeDownloadOption) -> Unit,
+    onClose: () -> Unit,
+    preparing: Boolean,
+    onRetry: () -> Unit,
+) {
+    if (playback != null) {
+        OnlineVideoPlayer(
+            playback = playback,
+            options = options,
+            onSelectQuality = onSelectQuality,
+            onClose = onClose,
+            playerHeight = playerHeight,
+        )
+    } else {
+        Box(
+            Modifier.fillMaxWidth().height(playerHeight).clip(RoundedCornerShape(14.dp)).background(Color.Black),
+            contentAlignment = Alignment.Center,
+        ) {
+            AsyncImage(
+                model = video.thumbnail.ifBlank { null },
+                contentDescription = "Thumbnail ${video.title}",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+            )
+            Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .35f)))
+            if (preparing) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 3.dp)
+                    Text("Menyiapkan video…", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                }
+            } else {
+                Surface(color = Color.Black.copy(alpha = .58f), shape = RoundedCornerShape(14.dp)) {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Rounded.Movie, contentDescription = null, tint = Color.White, modifier = Modifier.size(28.dp))
+                        Text("Video belum siap diputar", color = Color.White, fontSize = 12.sp)
+                        TextButton(onClick = onRetry) { Text("Coba lagi", color = Color.White) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchVideoDetails(video: NexrayYoutubeVideo, playback: OnlinePlayback?) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(YtPalette.Surface).padding(horizontal = 4.dp, vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            video.title,
+            color = YtPalette.Text,
+            fontSize = 18.sp,
+            lineHeight = 24.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            buildString {
+                if (video.views.isNotBlank()) append("${video.views} views")
+                if (video.uploadAt.isNotBlank()) {
+                    if (isNotEmpty()) append("  •  ")
+                    append(video.uploadAt)
+                }
+                if (playback != null) {
+                    if (isNotEmpty()) append("  •  ")
+                    append(playback.quality)
+                }
+            }.ifBlank { "Video dari ${video.channel.ifBlank { "YouTube" }}" },
+            color = YtPalette.Muted,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+        )
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(YtPalette.SurfaceAlt).padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(Modifier.size(38.dp).clip(CircleShape).background(Color.White), contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.Movie, contentDescription = null, tint = YtPalette.Red, modifier = Modifier.size(20.dp))
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(video.channel.ifBlank { "YouTube" }, color = YtPalette.Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("Sumber video", color = YtPalette.Muted, fontSize = 10.sp)
+            }
+            Surface(color = YtPalette.Red, shape = RoundedCornerShape(20.dp)) {
+                Text("VIDEO", modifier = Modifier.padding(horizontal = 13.dp, vertical = 7.dp), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WatchQualityHeading() {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Kualitas & download", color = YtPalette.Text, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+        Text("Pilih resolusi yang tersedia untuk video ini.", color = YtPalette.Muted, fontSize = 11.sp, lineHeight = 16.sp)
+    }
+}
+
+@Composable
 private fun SearchPane(
     modifier: Modifier,
     query: String,
@@ -505,111 +795,26 @@ private fun SearchPane(
     searching: Boolean,
     results: List<NexrayYoutubeVideo>,
     selectedVideo: NexrayYoutubeVideo?,
-    shownVideo: NexrayYoutubeVideo?,
-    options: List<YoutubeDownloadOption>,
-    preparing: Boolean,
-    selectedQuality: String?,
-    playback: OnlinePlayback?,
     onSelectVideo: (NexrayYoutubeVideo) -> Unit,
-    onSelectQuality: (YoutubeDownloadOption) -> Unit,
-    onPlay: (YoutubeDownloadOption) -> Unit,
-    onDownload: (YoutubeDownloadOption) -> Unit,
-    onClosePlayer: () -> Unit,
 ) {
-    val watchPage = playback != null && shownVideo != null
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(if (watchPage) 8.dp else 12.dp)) {
-        if (watchPage) {
-            val activePlayback = requireNotNull(playback)
-            val activeVideo = requireNotNull(shownVideo)
-            OnlineVideoPlayer(
-                playback = activePlayback,
-                options = options,
-                onSelectQuality = onSelectQuality,
-                onClose = onClosePlayer,
-            )
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    activeVideo.title,
-                    color = YtPalette.Text,
-                    fontSize = 16.sp,
-                    lineHeight = 21.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    buildString {
-                        append(activeVideo.channel.ifBlank { "YouTube" })
-                        if (activeVideo.views.isNotBlank()) append("  •  ${activeVideo.views} views")
-                        append("  •  ${activePlayback.quality}")
-                    },
-                    color = YtPalette.Muted,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (options.isNotEmpty()) {
-                SelectedVideoPanel(
-                    video = activeVideo,
-                    options = options,
-                    selectedQuality = selectedQuality ?: activePlayback.quality,
-                    preparing = preparing,
-                    onSelectQuality = onSelectQuality,
-                    onPlay = onPlay,
-                    onDownload = onDownload,
-                    showTitle = false,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text("Video lainnya", color = YtPalette.Text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                TextButton(onClick = onClosePlayer) { Text("Kembali ke jelajah", color = YtPalette.Red, fontSize = 11.sp) }
-            }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
-            }
-        } else {
-            SearchBar(query = query, onQueryChange = onQueryChange, searching = searching, onSearch = onSearch)
-            AnimatedVisibility(
-                visible = selectedVideo != null && shownVideo != null,
-                enter = fadeIn(tween(260)) + expandVertically(tween(340, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(160)) + shrinkVertically(tween(260)),
-            ) {
-                shownVideo?.let { video ->
-                    SelectedVideoPanel(
-                        video = video,
-                        options = options,
-                        selectedQuality = selectedQuality,
-                        preparing = preparing,
-                        onSelectQuality = onSelectQuality,
-                        onPlay = onPlay,
-                        onDownload = onDownload,
+    // Browse and watch are deliberately separate routes: selecting a result replaces this page.
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SearchBar(query = query, onQueryChange = onQueryChange, searching = searching, onSearch = onSearch)
+        val phase = when {
+            searching -> 0
+            results.isEmpty() -> 1
+            else -> 2
+        }
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            Crossfade(targetState = phase, animationSpec = tween(280), label = "resultsPhase") { current ->
+                when (current) {
+                    0 -> ShimmerList()
+                    1 -> YtEmptyState(
+                        icon = Icons.Rounded.Movie,
+                        title = "Jelajahi video dari Nexray",
+                        body = "Cari video, lalu pilih salah satu untuk membuka halaman pemutar tersendiri. Kualitas dan download tersedia di halaman video.",
                     )
-                }
-            }
-            val phase = when {
-                searching -> 0
-                results.isEmpty() -> 1
-                else -> 2
-            }
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                Crossfade(targetState = phase, animationSpec = tween(320), label = "resultsPhase") { current ->
-                    when (current) {
-                        0 -> ShimmerList()
-                        1 -> YtEmptyState(
-                            icon = Icons.Rounded.Movie,
-                            title = "Jelajahi video dari Nexray",
-                            body = "Ketuk video untuk langsung diputar. Ganti kualitas atau simpan video untuk ditonton offline.",
-                        )
-                        else -> ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
-                    }
+                    else -> ResultsList(results = results, selectedVideo = selectedVideo, onSelect = onSelectVideo)
                 }
             }
         }
@@ -697,9 +902,9 @@ private fun ResultsList(
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("${results.size} hasil", color = YtPalette.Muted, fontSize = 12.sp, fontWeight = FontWeight.Medium)
         BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-            if (maxWidth >= 620.dp) {
+            if (maxWidth >= 600.dp) {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 270.dp),
+                    columns = GridCells.Adaptive(minSize = if (maxWidth >= 1000.dp) 300.dp else 248.dp),
                     modifier = Modifier.fillMaxSize(),
                     horizontalArrangement = Arrangement.spacedBy(18.dp),
                     verticalArrangement = Arrangement.spacedBy(22.dp),
@@ -1044,6 +1249,7 @@ private fun OnlineVideoPlayer(
     options: List<YoutubeDownloadOption>,
     onSelectQuality: (YoutubeDownloadOption) -> Unit,
     onClose: () -> Unit,
+    playerHeight: Dp = 220.dp,
 ) {
     val context = LocalContext.current
     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -1108,7 +1314,7 @@ private fun OnlineVideoPlayer(
                 Box(
                     Modifier
                         .fillMaxWidth()
-                        .height(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 184.dp else 220.dp)
+                        .height(playerHeight)
                         .clip(RoundedCornerShape(if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 0.dp else 14.dp))
                         .background(Color.Black),
                 ) {

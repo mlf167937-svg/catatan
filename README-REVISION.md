@@ -1,22 +1,19 @@
-# HansAps — YouTube watch-page and rotation revision
+# HansAps — YouTube UI Revision
 
-## Perubahan
-
-- Menambahkan pemulihan sesi lokal di `AccountStore`: hanya nama pengguna sesi yang disimpan; password plaintext tidak disimpan. Logout menghapus sesi lokal.
-- Menangani perubahan konfigurasi orientasi pada `MainActivity` agar pergantian portrait/landscape tidak menghancurkan composition dan menampilkan ulang layar login.
-- Mengembalikan orientasi ke `unspecified` saat keluar dari halaman YouTube.
-- Mengubah alur pilih video menjadi watch page: pemutar tampil lebih dahulu, kemudian judul, channel/metadata, opsi kualitas, tombol unduh, dan daftar video lain.
-- Menambahkan menu resolusi dari ikon pengaturan di pemutar inline maupun fullscreen.
-- Mengganti sumber video pada instance ExoPlayer yang sama ketika resolusi berubah, lalu melanjutkan dari posisi pemutaran sebelumnya jika memungkinkan.
-- Menyediakan tampilan fullscreen dan tombol orientasi pada overlay fullscreen.
+## Fokus revisi
+- Halaman jelajah/pencarian dan halaman pemutar online sekarang merupakan dua route UI terpisah. Saat video dipilih, UI pencarian, hasil, dan tab bawah disembunyikan. Tombol kembali dan tombol Back Android kembali ke halaman jelajah.
+- Halaman pemutar online memiliki player yang responsif, kontrol fullscreen, kontrol orientasi, pemilihan resolusi, download, metadata video, state loading, dan aksi coba lagi. Pergantian resolusi mempertahankan instance ExoPlayer dan berupaya melanjutkan dari posisi pemutaran saat ini.
+- Video offline pada Koleksi juga dibuka sebagai halaman pemutar terpisah, bukan inline di daftar koleksi.
+- Daftar video memakai grid adaptif pada layar lebar dan daftar vertikal pada layar sempit. Halaman player memakai layout satu kolom di ponsel dan dua kolom di layar lebar. Semua ukuran UI berbasis dp/sp dan area aman sistem.
+- State video aktif disimpan melalui Saver Compose; state login tidak diubah dalam revisi ini.
 
 ## Validasi
+- XML `AndroidManifest.xml` dapat diparse.
+- Pemindaian parser Kotlin tidak menemukan error sintaks (pengecekan dengan `kotlinc` tanpa Android/Compose classpath).
+- Arsip hasil harus lolos `unzip -t`.
+- Build Gradle penuh belum bisa dijalankan di lingkungan ini karena wrapper memerlukan unduhan Gradle 8.11.1 dari `services.gradle.org`, dan DNS/jaringan host tidak tersedia. Karena itu keberhasilan `assembleDebug` belum dapat dikonfirmasi di sini.
 
-- Arsip input dan output diperiksa untuk integritas ZIP.
-- Berkas Kotlin yang diedit diperiksa secara statis; tidak ditemukan diagnostic parser/sintaks oleh compiler Kotlin standalone.
-- `:app:assembleDebug` belum dapat diselesaikan di lingkungan kerja ini karena Gradle Wrapper harus mengunduh Gradle 8.11.1 dari `services.gradle.org`, tetapi koneksi DNS/jaringan tidak tersedia. Kotlin standalone juga tidak memiliki Android SDK dan classpath Jetpack Compose/Media3, sehingga pemeriksaan itu bukan pengganti build Android penuh.
-
-Untuk validasi final pada komputer yang memiliki Android SDK dan koneksi dependensi, jalankan:
+Build di Android Studio atau lingkungan yang punya koneksi Gradle dengan:
 
 ```bash
 ./gradlew :app:assembleDebug
