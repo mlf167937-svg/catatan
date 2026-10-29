@@ -152,7 +152,7 @@ internal fun RexLocalProfileBridge.saveSyncedProfileAssets(id: String, pictureDa
             if (bytes.size > 2_500_000) return ""
             val file = File(folder, name)
             file.writeBytes(bytes)
-            file.absolutePath
+            return file.absolutePath
         }
         save(pictureData, "avatar.jpg") to save(bannerData, "banner.jpg")
     }.getOrDefault("" to "")

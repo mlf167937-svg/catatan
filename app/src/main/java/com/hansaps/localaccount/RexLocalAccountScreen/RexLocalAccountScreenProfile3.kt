@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalConfiguration
@@ -147,6 +148,115 @@ internal fun __splitImpl_RexProfileRoot(padding: PaddingValues) {
     }
 
     RexProfileOverlays(ctl)
+}
+
+/** Responsive profile layout for portrait phones. */
+@Composable
+internal fun RexAccountScreenPortrait(ctl: RexProfileController) {
+    Box(Modifier.fillMaxSize()) {
+        Aurora(Modifier.fillMaxSize())
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Box(Modifier.fillMaxWidth().height(218.dp)) {
+                BannerView(
+                    acct = ctl.acct,
+                    rev = ctl.rev,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .height(176.dp)
+                        .clip(RoundedCornerShape(22.dp)),
+                    parallax = { 0f }
+                )
+                ProfileEditButton(ctl, Modifier.align(Alignment.TopEnd).padding(10.dp))
+                StoryRingAvatar(
+                    acct = ctl.acct,
+                    rev = ctl.rev,
+                    storyCount = ctl.stories.size,
+                    dia = 96.dp,
+                    modifier = Modifier.align(Alignment.BottomStart).padding(start = 12.dp),
+                    onClick = {
+                        if (ctl.stories.isNotEmpty()) ctl.storyIndex = 0
+                        else ctl.showStoryCompose = true
+                    },
+                    onAdd = { ctl.showStoryCompose = true }
+                )
+            }
+
+            ProfileIdentity(ctl.acct, centered = false)
+            ProfileStats(ctl)
+            ProfileActions(ctl)
+            ProfileTabs(ctl, columns = 3, cellAspect = 0.86f)
+        }
+    }
+}
+
+/** Two-pane profile layout for landscape screens, keeping the collection independently scrollable. */
+@Composable
+internal fun RexAccountScreenLandscape(ctl: RexProfileController) {
+    Box(Modifier.fillMaxSize()) {
+        Aurora(Modifier.fillMaxSize())
+
+        Row(
+            Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(
+                Modifier
+                    .width(300.dp)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Box(Modifier.fillMaxWidth().height(184.dp)) {
+                    BannerView(
+                        acct = ctl.acct,
+                        rev = ctl.rev,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .height(145.dp)
+                            .clip(RoundedCornerShape(20.dp)),
+                        parallax = { 0f }
+                    )
+                    ProfileEditButton(ctl, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                    StoryRingAvatar(
+                        acct = ctl.acct,
+                        rev = ctl.rev,
+                        storyCount = ctl.stories.size,
+                        dia = 82.dp,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(start = 10.dp),
+                        onClick = {
+                            if (ctl.stories.isNotEmpty()) ctl.storyIndex = 0
+                            else ctl.showStoryCompose = true
+                        },
+                        onAdd = { ctl.showStoryCompose = true }
+                    )
+                }
+                ProfileIdentity(ctl.acct, centered = false)
+                ProfileStats(ctl)
+                ProfileActions(ctl)
+            }
+
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
+                    .padding(bottom = 8.dp)
+            ) {
+                ProfileTabs(ctl, columns = 4, cellAspect = 0.9f)
+            }
+        }
+    }
 }
 
 @Composable
