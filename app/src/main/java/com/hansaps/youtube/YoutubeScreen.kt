@@ -137,6 +137,7 @@ import com.hansaps.youtube.ui.ShimmerBlock
 import com.hansaps.youtube.ui.YtEmptyState
 import com.hansaps.youtube.ui.YtPalette
 import com.hansaps.youtube.ui.rememberShimmerShift
+import com.hansaps.youtube.notifications.YoutubePlaybackNotification
 import kotlinx.coroutines.delay
 
 private enum class VideoTab(val label: String) { SEARCH("Jelajahi"), COLLECTION("Koleksi") }
@@ -697,6 +698,7 @@ private fun WatchVideoSurface(
             onSelectQuality = onSelectQuality,
             onClose = onClose,
             playerHeight = playerHeight,
+            thumbnailUrl = video.thumbnail,
         )
     } else {
         Box(
@@ -1250,6 +1252,7 @@ private fun OnlineVideoPlayer(
     onSelectQuality: (YoutubeDownloadOption) -> Unit,
     onClose: () -> Unit,
     playerHeight: Dp = 220.dp,
+    thumbnailUrl: String? = null,
 ) {
     val context = LocalContext.current
     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -1273,7 +1276,16 @@ private fun OnlineVideoPlayer(
             lastSourceKey = sourceKey
         }
     }
-    DisposableEffect(exo) { onDispose { exo.release() } }
+    DisposableEffect(exo) {
+        YoutubePlaybackNotification.bind(context, exo)
+        onDispose {
+            YoutubePlaybackNotification.unbind(context, exo)
+            exo.release()
+        }
+    }
+    LaunchedEffect(exo, playback.title, thumbnailUrl, playback.quality) {
+        YoutubePlaybackNotification.updateMetadata(context, exo, playback.title, thumbnailUrl, playback.quality)
+    }
     val entrance = remember { MutableTransitionState(false).apply { targetState = true } }
 
 

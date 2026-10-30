@@ -10,6 +10,7 @@ import com.hansaps.core.NexrayYoutubeVideo
 import com.hansaps.youtube.Engine.AuthorizedVideoSource
 import com.hansaps.youtube.Engine.YoutubeDownloadManager
 import com.hansaps.youtube.Engine.YoutubeDownloadOption
+import com.hansaps.youtube.notifications.YoutubeDownloadNotification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -93,9 +94,11 @@ class YoutubeViewModel : ViewModel() {
             return
         }
         viewModelScope.launch {
+            val appContext = context.applicationContext
+            val notificationKey = "${video.id}_${option.quality}"
             mutableMessage.value = "Mengunduh video ${option.quality}…"
             val result = YoutubeDownloadManager.download(
-                context.applicationContext,
+                appContext,
                 AuthorizedVideoSource(
                     title = video.title,
                     videoId = video.id,
@@ -105,11 +108,20 @@ class YoutubeViewModel : ViewModel() {
                     audioUrl = option.audioUrl.takeUnless { option.hasAudio },
                     sourceLabel = "Nexray API",
                 ),
-            )
+            ) { progress ->
+                YoutubeDownloadNotification.showProgress(
+                    appContext, notificationKey, video.title,
+                    progress.percent, progress.message, progress.indeterminate,
+                )
+            }
             result.onSuccess {
+                YoutubeDownloadNotification.showCompleted(appContext, notificationKey, it.title, option.quality)
                 refresh(context)
                 mutableMessage.value = "${it.title} disimpan ke Download/HansAps/Youtube pada kualitas ${option.quality}."
-            }.onFailure { mutableMessage.value = it.message ?: "Download video gagal." }
+            }.onFailure {
+                YoutubeDownloadNotification.showFailed(appContext, notificationKey, video.title, it.message ?: "Kesalahan jaringan")
+                mutableMessage.value = it.message ?: "Download video gagal."
+            }
         }
     }
 

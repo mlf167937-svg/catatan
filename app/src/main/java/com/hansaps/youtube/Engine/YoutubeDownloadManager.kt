@@ -36,6 +36,8 @@ data class YoutubeDownloadOption(
     val audioUrl: String? = null,
 )
 
+data class YoutubeDownloadProgress(val percent: Int, val message: String, val indeterminate: Boolean = false)
+
 data class AuthorizedVideoSource(
     val title: String,
     val videoId: String,
@@ -108,7 +110,14 @@ object YoutubeDownloadManager {
             .thenByDescending { it.hasAudio }.thenBy { it.quality }).distinctBy { it.quality }
     }
 
-    suspend fun download(context: Context, source: AuthorizedVideoSource): Result<LocalVideo> = withContext(Dispatchers.IO) {
+    suspend fun download(
+        context: Context,
+        source: AuthorizedVideoSource,
+        onProgress: (YoutubeDownloadProgress) -> Unit = {},
+    ): Result<LocalVideo> = withContext(Dispatchers.IO) {
+        fun report(percent: Int, message: String, indeterminate: Boolean = false) {
+            runCatching { onProgress(YoutubeDownloadProgress(percent.coerceIn(0, 100), message, indeterminate)) }
+        }
         runCatching {
             require(source.directUrl.startsWith("https://", true)) {
                 "Sumber video harus berupa URL HTTPS langsung dari Nexray."
@@ -117,6 +126,7 @@ object YoutubeDownloadManager {
                 throw IOException("Info kualitas video tidak valid.")
             }
 
+            report(1, "Menyiapkan unduhan", true)
             val workDir = File(context.cacheDir, "hansaps-youtube-tmp").apply { mkdirs() }
             val token = "${System.currentTimeMillis()}-${source.videoId.hashCode().toUInt()}"
             val rawVideo = File(workDir, "$token-video.mp4.part")
@@ -124,13 +134,15 @@ object YoutubeDownloadManager {
             val muxedVideo = File(workDir, "$token-merged.mp4.part")
             var outputFile = rawVideo
             try {
-                downloadToFile(source.directUrl, rawVideo)
+                downloadToFile(source.directUrl, rawVideo, 3, if (source.audioUrl.isNullOrBlank()) 91 else 62, "Mengunduh video", report = ::report)
                 if (!source.audioUrl.isNullOrBlank()) {
-                    downloadToFile(source.audioUrl, rawAudio)
+                    downloadToFile(source.audioUrl, rawAudio, 62, 88, "Mengunduh audio", report = ::report)
+                    report(90, "Menggabungkan video dan audio")
                     muxMp4VideoAndM4aAudio(rawVideo, rawAudio, muxedVideo)
                     outputFile = muxedVideo
                 }
 
+                report(94, "Menyimpan video ke perangkat")
                 val relativePath = DownloadStorage.relativeFolder("Youtube", source.title)
                 val values = ContentValues().apply { put(MediaStore.Video.Media.TITLE, source.title) }
                 val videoUri = DownloadStorage.createPendingFile(
@@ -160,6 +172,7 @@ object YoutubeDownloadManager {
                         .toString(2),
                 )
 
+                report(98, "Menyimpan thumbnail dan metadata")
                 source.thumbnailUrl?.takeIf { it.startsWith("https://", true) }?.let { thumbnailUrl ->
                     runCatching {
                         val thumbnail = DownloadStorage.createPendingFile(
@@ -174,6 +187,7 @@ object YoutubeDownloadManager {
                         }
                     }
                 }
+                report(100, "Unduhan selesai")
                 LocalVideo(videoUri.lastPathSegment ?: source.videoId, source.title, videoUri, 0L, "video.mp4")
             } finally {
                 rawVideo.delete()
@@ -190,11 +204,43 @@ object YoutubeDownloadManager {
         } finally { conn.disconnect() }
     }
 
-    private fun downloadToFile(url: String, destination: File) {
+    private fun downloadToFile(
+        url: String,
+        destination: File,
+        startPercent: Int,
+        endPercent: Int,
+        label: String,
+        report: (Int, String, Boolean) -> Unit,
+    ) {
         destination.parentFile?.mkdirs()
         val conn = openDownloadConnection(url)
         try {
-            conn.inputStream.use { input -> destination.outputStream().use { output -> input.copyTo(output, 128 * 1024) } }
+            val totalBytes = conn.contentLengthLong
+            var copied = 0L
+            var lastReportedPercent = -1
+            var lastReportedAt = 0L
+            conn.inputStream.use { input ->
+                destination.outputStream().buffered(128 * 1024).use { output ->
+                    val buffer = ByteArray(128 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        copied += count
+                        val now = System.currentTimeMillis()
+                        val pct = if (totalBytes > 0L) {
+                            (startPercent + ((copied.toDouble() / totalBytes.toDouble()) * (endPercent - startPercent)).toInt())
+                                .coerceIn(startPercent, endPercent)
+                        } else startPercent
+                        if (pct != lastReportedPercent && (now - lastReportedAt >= 350L || pct == endPercent)) {
+                            report(pct, if (totalBytes > 0L) "$label · $pct%" else "$label…", totalBytes <= 0L)
+                            lastReportedPercent = pct
+                            lastReportedAt = now
+                        }
+                    }
+                }
+            }
+            report(endPercent, "$label · selesai", false)
         } finally { conn.disconnect() }
         if (destination.length() <= 0L) throw IOException("Nexray mengirim file kosong.")
     }

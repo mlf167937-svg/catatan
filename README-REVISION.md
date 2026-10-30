@@ -1,20 +1,26 @@
-# HansAps — YouTube UI Revision
+# HansAps — YouTube UI, Playback & Notifications Revision
 
-## Fokus revisi
-- Halaman jelajah/pencarian dan halaman pemutar online sekarang merupakan dua route UI terpisah. Saat video dipilih, UI pencarian, hasil, dan tab bawah disembunyikan. Tombol kembali dan tombol Back Android kembali ke halaman jelajah.
-- Halaman pemutar online memiliki player yang responsif, kontrol fullscreen, kontrol orientasi, pemilihan resolusi, download, metadata video, state loading, dan aksi coba lagi. Pergantian resolusi mempertahankan instance ExoPlayer dan berupaya melanjutkan dari posisi pemutaran saat ini.
-- Video offline pada Koleksi juga dibuka sebagai halaman pemutar terpisah, bukan inline di daftar koleksi.
-- Daftar video memakai grid adaptif pada layar lebar dan daftar vertikal pada layar sempit. Halaman player memakai layout satu kolom di ponsel dan dua kolom di layar lebar. Semua ukuran UI berbasis dp/sp dan area aman sistem.
-- State video aktif disimpan melalui Saver Compose; state login tidak diubah dalam revisi ini.
+## Upgrade UI/UX
+- Home sekarang menggunakan dashboard responsif dengan greeting/avatar, hero banner dan CTA, metric cards, serta feature cards adaptif: kolom untuk ponsel dan tiga kolom untuk layar lebar.
+- UI YouTube mempertahankan tampilan putih/merah yang terinspirasi YouTube, thumbnail video, grid adaptif, halaman pemutar terpisah, kontrol kualitas, fullscreen, dan orientasi.
+- Koleksi video offline tetap memakai halaman pemutar terpisah.
+
+## Notification playback
+- Channel `Nonton YT` menampilkan judul video, kualitas, status play/pause, dan thumbnail besar bila thumbnail HTTPS berhasil diambil.
+- Aksi notifikasi Putar/Jeda mengontrol ExoPlayer aktif; aksi Mulai Ulang mengembalikan playhead ke awal.
+- Foreground service bertipe `mediaPlayback` menjaga notifikasi/player tetap hidup ketika aplikasi dipindah ke background. Saat halaman pemutar ditutup, notifikasi dan service dibersihkan.
+- Playback video offline juga memakai notifikasi `Nonton YT` (tanpa artwork remote karena model video lokal tidak menyimpan URL thumbnail).
+
+## Download notifications
+- Channel `Download Video YT` menampilkan status dan progress unduh yang diperbarui selama stream diunduh, menyimpan video/metadata, dan saat proses selesai atau gagal.
+- Progress unduhan didorong oleh byte aktual ketika server memberikan panjang konten; jika ukuran tidak tersedia, indikator berubah menjadi indeterminate.
 
 ## Validasi
-- XML `AndroidManifest.xml` dapat diparse.
-- Pemindaian parser Kotlin tidak menemukan error sintaks (pengecekan dengan `kotlinc` tanpa Android/Compose classpath).
-- Arsip hasil harus lolos `unzip -t`.
-- Build Gradle penuh belum bisa dijalankan di lingkungan ini karena wrapper memerlukan unduhan Gradle 8.11.1 dari `services.gradle.org`, dan DNS/jaringan host tidak tersedia. Karena itu keberhasilan `assembleDebug` belum dapat dikonfirmasi di sini.
+- `AndroidManifest.xml` berhasil diparse; deklarasi foreground service, receiver, dan izin `FOREGROUND_SERVICE_MEDIA_PLAYBACK` terdeteksi.
+- Pemeriksaan parser Kotlin (`kotlinc`) tidak menemukan diagnostic sintaks. Pemanggilan compiler tanpa Android/Compose/Media3 dependencies menghasilkan diagnostic unresolved-reference, jadi pemeriksaan ini bukan pengganti build Android.
+- Build Gradle penuh belum dapat dijalankan di lingkungan ini karena Gradle Wrapper perlu mengunduh Gradle 8.11.1 dari `services.gradle.org`, tetapi resolusi host/jaringan gagal (`UnknownHostException`). Jangan menganggap `assembleDebug` sudah terverifikasi sampai dijalankan di Android Studio atau mesin dengan distribusi Gradle tersedia.
 
-Build di Android Studio atau lingkungan yang punya koneksi Gradle dengan:
-
+## Build check di lingkungan Android
 ```bash
 ./gradlew :app:assembleDebug
 ```

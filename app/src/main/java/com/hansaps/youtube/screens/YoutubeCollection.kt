@@ -85,6 +85,7 @@ import com.hansaps.core.LocalVideo
 import com.hansaps.youtube.ui.PressScale
 import com.hansaps.youtube.ui.YtEmptyState
 import com.hansaps.youtube.ui.YtPalette
+import com.hansaps.youtube.notifications.YoutubePlaybackNotification
 import kotlinx.coroutines.delay
 
 @Composable
@@ -299,7 +300,16 @@ fun YoutubeLocalWatchScreen(video: LocalVideo, onBack: () -> Unit) {
     val configuration = LocalConfiguration.current
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val exo = remember(video.uri) { buildLocalPlayer(context, video) }
-    DisposableEffect(exo) { onDispose { exo.release() } }
+    DisposableEffect(exo) {
+        YoutubePlaybackNotification.bind(context, exo)
+        onDispose {
+            YoutubePlaybackNotification.unbind(context, exo)
+            exo.release()
+        }
+    }
+    LaunchedEffect(exo, video.id, video.title) {
+        YoutubePlaybackNotification.updateMetadata(context, exo, video.title, null, "Offline")
+    }
 
     BoxWithConstraints(Modifier.fillMaxSize().background(YtPalette.Background)) {
         val wide = maxWidth >= 900.dp

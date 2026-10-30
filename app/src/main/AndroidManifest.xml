@@ -30,6 +30,16 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".youtube.notifications.YoutubeMediaActionReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.hansaps.youtube.notification.TOGGLE" />
+                <action android:name="com.hansaps.youtube.notification.STOP" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".core.HansMediaService"
             android:exported="true"
@@ -38,6 +48,11 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".youtube.notifications.YoutubePlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <service
             android:name=".spotify.rexmusic.RexMusicService"
