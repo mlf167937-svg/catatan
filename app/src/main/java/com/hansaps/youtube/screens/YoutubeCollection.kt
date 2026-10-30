@@ -48,14 +48,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.Movie
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -83,44 +84,39 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.hansaps.core.LocalVideo
+import com.hansaps.youtube.YoutubeDownloadTask
 import com.hansaps.youtube.ui.PressScale
 import com.hansaps.youtube.ui.YtEmptyState
 import com.hansaps.youtube.ui.YtPalette
 import com.hansaps.youtube.notifications.YoutubePlaybackNotification
-import com.hansaps.youtube.notifications.YoutubeDownloadUiState
 import kotlinx.coroutines.delay
 
 @Composable
 fun YoutubeCollection(
     videos: List<LocalVideo>,
-    downloads: List<YoutubeDownloadUiState> = emptyList(),
+    activeDownloads: List<YoutubeDownloadTask> = emptyList(),
     onRefresh: () -> Unit,
     onSelectVideo: (LocalVideo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CollectionHeader(count = videos.size, onRefresh = onRefresh)
-        downloads.forEach { item -> CollectionDownloadCard(item) }
+
+        if (activeDownloads.isNotEmpty()) {
+            ActiveDownloadsSection(tasks = activeDownloads)
+        }
 
         if (videos.isEmpty()) {
-            if (downloads.isEmpty()) {
-                YtEmptyState(
-                    icon = Icons.Rounded.Movie,
-                    title = "Belum ada video",
-                    body = "Cari video di tab Jelajahi lalu tekan Download. Video yang sudah tersimpan dapat diputar tanpa internet.",
-                )
-            } else {
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        "Video yang selesai diunduh akan muncul di sini.",
-                        color = YtPalette.Muted,
-                        fontSize = 12.sp,
-                    )
-                }
-            }
+            YtEmptyState(
+                icon = if (activeDownloads.isEmpty()) Icons.Rounded.Movie else Icons.Rounded.CloudDownload,
+                title = if (activeDownloads.isEmpty()) "Belum ada video" else "Video sedang disiapkan",
+                body = if (activeDownloads.isEmpty()) {
+                    "Cari video di tab Jelajahi lalu tekan Download. Video yang sudah tersimpan dapat diputar tanpa internet."
+                } else {
+                    "Progres unduhan ditampilkan di atas. Video akan muncul di koleksi setelah file selesai disimpan."
+                },
+                modifier = Modifier.weight(1f),
+            )
         } else {
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 if (maxWidth >= 620.dp) {
@@ -152,75 +148,63 @@ fun YoutubeCollection(
 }
 
 @Composable
-private fun CollectionDownloadCard(item: YoutubeDownloadUiState) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        color = if (item.failed) Color(0xFFFFF1F1) else YtPalette.Surface,
-        border = BorderStroke(1.dp, if (item.failed) Color(0xFFFFD6D6) else YtPalette.Border),
-        shadowElevation = 1.dp,
+private fun ActiveDownloadsSection(tasks: List<YoutubeDownloadTask>) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(max = 190.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    Icons.Rounded.Movie,
-                    contentDescription = null,
-                    tint = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
-                    modifier = Modifier.size(19.dp),
-                )
-                Spacer(Modifier.size(8.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                    Text(
-                        item.title,
-                        color = YtPalette.Text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        "YouTube · ${item.quality}",
-                        color = YtPalette.Muted,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                    )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(Icons.Rounded.CloudDownload, contentDescription = null, tint = YtPalette.Red, modifier = Modifier.size(17.dp))
+            Text("Aktivitas unduhan", color = YtPalette.Text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Text("${tasks.count { it.phase == YoutubeDownloadTask.Phase.DOWNLOADING }} aktif", color = YtPalette.Muted, fontSize = 10.sp)
+        }
+        tasks.forEach { task ->
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(15.dp),
+                color = YtPalette.Surface,
+                border = BorderStroke(1.dp, YtPalette.Border),
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Box(
+                            Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(YtPalette.AccentSoftBrush),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.Movie, contentDescription = null, tint = YtPalette.Red, modifier = Modifier.size(18.dp))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(task.title, color = YtPalette.Text, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text("YouTube · ${task.quality}", color = YtPalette.Muted, fontSize = 10.sp, maxLines = 1)
+                        }
+                        Text(
+                            when (task.phase) {
+                                YoutubeDownloadTask.Phase.DOWNLOADING -> if (task.indeterminate) "…" else "${task.percent}%"
+                                YoutubeDownloadTask.Phase.COMPLETED -> "SELESAI"
+                                YoutubeDownloadTask.Phase.FAILED -> "GAGAL"
+                            },
+                            color = if (task.phase == YoutubeDownloadTask.Phase.FAILED) YtPalette.Red else YtPalette.Muted,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    if (task.indeterminate && task.phase == YoutubeDownloadTask.Phase.DOWNLOADING) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    } else {
+                        LinearProgressIndicator(
+                            progress = if (task.phase == YoutubeDownloadTask.Phase.COMPLETED) 1f else task.percent.coerceIn(0, 100) / 100f,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Text(task.message, color = YtPalette.Muted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    when {
-                        item.failed -> "Gagal"
-                        item.finished -> "Selesai"
-                        item.indeterminate -> "Proses"
-                        else -> "${item.percent.coerceIn(0, 100)}%"
-                    },
-                    color = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                )
             }
-            if (item.indeterminate && !item.finished) {
-                LinearProgressIndicator(
-                    modifier = Modifier.fillMaxWidth().height(5.dp),
-                    color = YtPalette.Red,
-                    trackColor = YtPalette.SurfaceAlt,
-                )
-            } else {
-                LinearProgressIndicator(
-                    progress = { if (item.failed) 0f else item.percent.coerceIn(0, 100) / 100f },
-                    modifier = Modifier.fillMaxWidth().height(5.dp),
-                    color = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
-                    trackColor = YtPalette.SurfaceAlt,
-                )
-            }
-            Text(
-                item.message,
-                color = if (item.failed) Color(0xFFB3261E) else YtPalette.Muted,
-                fontSize = 10.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }

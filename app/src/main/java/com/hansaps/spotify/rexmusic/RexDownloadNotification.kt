@@ -5,13 +5,12 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.hansaps.R
 
 /** Download notifications are best-effort and must never interrupt the actual file download. */
 object RexDownloadNotification {
-    internal const val CHANNEL_ID = "hansaps_music_downloads"
+    private const val CHANNEL_ID = "hansaps_music_downloads"
     private const val CHANNEL_NAME = "Unduhan musik"
 
     fun init(context: Context) {
@@ -19,26 +18,19 @@ object RexDownloadNotification {
         runCatching {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
                 ?: return@runCatching
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    CHANNEL_ID,
-                    CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_LOW
-                ).apply {
-                    description = "Progres dan hasil unduhan musik HansAps"
-                    setShowBadge(false)
-                }
-            )
+            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_ID,
+                        CHANNEL_NAME,
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = "Progres dan hasil unduhan musik HansAps"
+                        setShowBadge(false)
+                    }
+                )
+            }
         }
-    }
-
-    fun notificationsEnabled(context: Context): Boolean {
-        init(context.applicationContext)
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
-        if (!manager.areNotificationsEnabled()) return false
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            manager.getNotificationChannel(CHANNEL_ID)?.importance?.let { it != NotificationManager.IMPORTANCE_NONE } ?: false
-        } else true
     }
 
     fun showProgress(context: Context, key: String, status: DownloadStatus) {
@@ -86,20 +78,16 @@ object RexDownloadNotification {
             }
             val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_download)
-                .setContentTitle(title.ifBlank { "HansAps Music" })
+                .setContentTitle(title)
                 .setContentText(text)
-                .setSubText("HansAps · Unduhan musik")
-                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
                 .setContentIntent(contentIntent)
                 .setOnlyAlertOnce(true)
                 .setOngoing(ongoing)
                 .setAutoCancel(!ongoing)
-                .setProgress(if (ongoing) 100 else 0, if (ongoing) progress else 0, ongoing && indeterminate)
+                .setProgress(100, progress, indeterminate)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setSilent(true)
                 .build()
-            manager.notify(100_000 + key.hashCode().and(0x3fff_ffff), notification)
-        }.onFailure { Log.e("HansApsNotifications", "Music download notification failed", it) }
+            manager.notify(43_000 + key.hashCode().and(0x7fff), notification)
+        }
     }
 }

@@ -169,16 +169,6 @@ internal fun RexOfflineManager.__splitImpl_download(track: RexTrack) {
             }
         }
         jobs[key] = job
-        // Android 10 has no POST_NOTIFICATIONS runtime permission. A dataSync
-        // foreground service is what keeps the progress notification visible
-        // while HansAps is backgrounded.
-        if (!RexDownloadNotification.notificationsEnabled(appContext)) {
-            _messages.tryEmit("Notifikasi HansAps dimatikan di setelan Android. Aktifkan notifikasi aplikasi agar progres unduhan muncul.")
-        }
-        val serviceStarted = RexDownloadForegroundService.start(appContext)
-        if (!serviceStarted) {
-            _messages.tryEmit("Download berjalan, tetapi layanan notifikasi gagal dimulai. Periksa setelan notifikasi dan coba lagi.")
-        }
         job.start()
     }
 

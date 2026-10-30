@@ -1,6 +1,7 @@
 package com.hansaps.youtube
 
 import android.content.Context
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.hansaps.core.DownloadStorage
@@ -11,7 +12,6 @@ import com.hansaps.youtube.Engine.AuthorizedVideoSource
 import com.hansaps.youtube.Engine.YoutubeDownloadManager
 import com.hansaps.youtube.Engine.YoutubeDownloadOption
 import com.hansaps.youtube.notifications.YoutubeDownloadService
-import com.hansaps.youtube.notifications.YoutubeDownloadNotification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -94,6 +94,12 @@ class YoutubeViewModel : ViewModel() {
             mutableMessage.value = "Video ini tidak memiliki audio gabungan dan Nexray tidak menyediakan audio M4A untuk digabungkan."
             return
         }
+        if (YoutubeDownloadState.hasActiveDownload()) {
+            mutableMessage.value = "Masih ada unduhan YouTube yang berjalan. Tunggu sampai selesai sebelum memulai unduhan lain."
+            return
+        }
+
+        val appContext = context.applicationContext
         val notificationKey = "${video.id}_${option.quality}"
         val source = AuthorizedVideoSource(
             title = video.title,
@@ -104,17 +110,19 @@ class YoutubeViewModel : ViewModel() {
             audioUrl = option.audioUrl.takeUnless { option.hasAudio },
             sourceLabel = "Nexray API",
         )
-        runCatching { YoutubeDownloadService.start(context, source, notificationKey) }
-            .onSuccess {
-                mutableMessage.value = if (YoutubeDownloadNotification.notificationsEnabled(context)) {
-                    "Mengunduh ${video.title} · ${option.quality}. Progres tampil di Koleksi dan notifikasi."
-                } else {
-                    "Download dimulai. Notifikasi HansAps sedang dimatikan di setelan Android; progres tetap terlihat di Koleksi."
-                }
+        YoutubeDownloadState.begin(notificationKey, video.title, option.quality)
+        try {
+            YoutubeDownloadService.start(appContext, notificationKey, source)
+            mutableMessage.value = if (NotificationManagerCompat.from(appContext).areNotificationsEnabled()) {
+                "Download ${option.quality} dimulai. Progres terlihat di notifikasi dan tab Koleksi."
+            } else {
+                "Download dimulai dan progres terlihat di tab Koleksi. Notifikasi HansAps sedang dinonaktifkan di pengaturan Android."
             }
-            .onFailure { error ->
-                mutableMessage.value = "Tidak bisa memulai layanan download: ${error.message ?: "kesalahan sistem"}"
-            }
+        } catch (error: Throwable) {
+            val reason = error.message ?: "Android tidak dapat memulai layanan unduhan."
+            YoutubeDownloadState.fail(notificationKey, reason)
+            mutableMessage.value = reason
+        }
     }
 
     fun consumeMessage() { mutableMessage.value = null }

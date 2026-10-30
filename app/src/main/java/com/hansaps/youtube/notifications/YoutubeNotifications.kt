@@ -216,90 +216,94 @@ class YoutubeMediaActionReceiver : BroadcastReceiver() {
     }
 }
 
-/** Progress notifications for YouTube video downloads. */
+/** Progress notifications for YouTube video downloads, parallel to the music downloader notification. */
 object YoutubeDownloadNotification {
-    internal const val CHANNEL_ID = "hansaps_youtube_downloads"
-    private const val CHANNEL_NAME = "Download Video YT"
-    internal const val FOREGROUND_NOTIFICATION_ID = 82_002
+    // v2 is intentional: Android locks channel importance after first creation, so the
+    // old LOW-importance channel could stay hidden from the status bar on existing installs.
+    private const val CHANNEL_ID = "hansaps_youtube_downloads_v2"
+    private const val CHANNEL_NAME = "Download Video YouTube"
+    const val FOREGROUND_ID = 120_001
 
-    internal fun init(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    fun createChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
             manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Progres penyimpanan video YouTube untuk tontonan offline"
-                    setShowBadge(false)
+                NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_DEFAULT).apply {
+                    description = "Status dan progres unduhan video YouTube HansAps"
+                    setShowBadge(true)
                 },
             )
         }
     }
 
-    fun notificationsEnabled(context: Context): Boolean {
-        val app = context.applicationContext
-        // Ensure the channel exists before checking its user-controlled importance.
-        init(app)
-        val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
-        if (!manager.areNotificationsEnabled()) return false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            return manager.getNotificationChannel(CHANNEL_ID)?.importance?.let { it != NotificationManager.IMPORTANCE_NONE } ?: false
+    fun buildForeground(
+        context: Context,
+        title: String,
+        quality: String,
+        percent: Int,
+        message: String,
+        indeterminate: Boolean,
+    ): android.app.Notification {
+        createChannel(context)
+        val id = FOREGROUND_ID
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        return true
-    }
-
-    fun showProgress(context: Context, key: String, title: String, percent: Int, message: String, indeterminate: Boolean = false) {
-        post(context, key, title, message, true, percent.coerceIn(0, 100), indeterminate)
+        val contentIntent = PendingIntent.getActivity(
+            context, id, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_download)
+            .setContentTitle(title.ifBlank { "Download video YouTube" })
+            .setContentText(message)
+            .setSubText("HansAps  •  YouTube  •  $quality")
+            .setContentIntent(contentIntent)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setProgress(100, percent.coerceIn(0, 100), indeterminate)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
     }
 
     fun showCompleted(context: Context, key: String, title: String, quality: String) {
-        post(context, key, title, "Video tersimpan offline · $quality", false, 100, false)
+        showFinal(context, key, title, "Video tersimpan untuk ditonton offline · $quality", success = true)
     }
 
     fun showFailed(context: Context, key: String, title: String, message: String) {
-        post(context, key, title, "Download gagal: ${message.take(140)}", false, 0, false)
+        showFinal(context, key, title, "Download gagal: ${message.take(140)}", success = false)
     }
 
-    private fun notificationId(key: String): Int = 100_000 + (key.hashCode() and 0x3fff_ffff)
-
-    private fun post(
-        context: Context,
-        key: String,
-        title: String,
-        message: String,
-        ongoing: Boolean,
-        percent: Int,
-        indeterminate: Boolean,
-    ) {
-        val app = context.applicationContext
+    private fun showFinal(context: Context, key: String, title: String, message: String, success: Boolean) {
         runCatching {
-            init(app)
-            val id = notificationId(key)
-            val launchIntent = app.packageManager.getLaunchIntentForPackage(app.packageName)?.apply {
+            createChannel(context)
+            val id = 130_000 + (key.hashCode() and 0x3fff)
+            val openIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             }
-            val contentIntent = launchIntent?.let {
-                PendingIntent.getActivity(
-                    app, id, it,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                )
-            }
-            val notification = NotificationCompat.Builder(app, CHANNEL_ID)
+            val contentIntent = PendingIntent.getActivity(
+                context, id, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_download)
-                .setContentTitle(title.ifBlank { "Download Video YT" })
-                .setContentText(message)
-                .setSubText("HansAps · YouTube")
-                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setContentTitle(if (success) "Download selesai" else "Download gagal")
+                .setContentText(title.ifBlank { message })
+                .setSubText(message)
                 .setContentIntent(contentIntent)
-                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .setAutoCancel(true)
                 .setOnlyAlertOnce(true)
-                .setSilent(true)
-                .setOngoing(ongoing)
-                .setAutoCancel(!ongoing)
-                .setProgress(if (ongoing) 100 else 0, if (ongoing) percent else 0, ongoing && indeterminate)
                 .build()
-            (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(id, notification)
-        }.onFailure { android.util.Log.e("HansApsNotifications", "YouTube download notification failed", it) }
+            (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(id, notification)
+        }
     }
 }
 

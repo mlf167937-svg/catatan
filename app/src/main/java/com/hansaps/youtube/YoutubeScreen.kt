@@ -138,7 +138,6 @@ import com.hansaps.youtube.ui.YtEmptyState
 import com.hansaps.youtube.ui.YtPalette
 import com.hansaps.youtube.ui.rememberShimmerShift
 import com.hansaps.youtube.notifications.YoutubePlaybackNotification
-import com.hansaps.youtube.notifications.YoutubeDownloadProgressStore
 import kotlinx.coroutines.delay
 
 private enum class VideoTab(val label: String) { SEARCH("Jelajahi"), COLLECTION("Koleksi") }
@@ -185,17 +184,13 @@ fun YoutubeScreen(onBack: () -> Unit) {
     }
     val vm: YoutubeViewModel = viewModel()
     val videos by vm.localVideos.collectAsState()
-    val activeDownloads by YoutubeDownloadProgressStore.downloads.collectAsState()
+    val downloadTasks by YoutubeDownloadState.tasks.collectAsState()
     val results by vm.searchResults.collectAsState()
     val selectedVideo by vm.selectedVideo.collectAsState()
     val options by vm.qualityOptions.collectAsState()
     val searching by vm.searching.collectAsState()
     val preparing by vm.preparing.collectAsState()
     val message by vm.message.collectAsState()
-
-    LaunchedEffect(activeDownloads.filter { it.finished }.map { it.key }) {
-        if (activeDownloads.any { it.finished }) vm.refresh(context)
-    }
 
     var selectedTab by rememberSaveable { mutableStateOf(VideoTab.SEARCH) }
     var query by rememberSaveable { mutableStateOf("") }
@@ -215,6 +210,11 @@ fun YoutubeScreen(onBack: () -> Unit) {
     val headerEntrance = remember { MutableTransitionState(false).apply { targetState = true } }
 
     LaunchedEffect(Unit) { vm.refresh(context.applicationContext) }
+    LaunchedEffect(downloadTasks.filter { it.phase == YoutubeDownloadTask.Phase.COMPLETED }.map { it.key }) {
+        if (downloadTasks.any { it.phase == YoutubeDownloadTask.Phase.COMPLETED }) {
+            vm.refresh(context.applicationContext)
+        }
+    }
     // Simpan pesan terakhir agar teks toast tetap tampil saat animasi keluarnya berjalan.
     LaunchedEffect(message) { message?.let { lastMessage = it } }
     LaunchedEffect(selectedVideo?.url, options, preparing, requestedVideoKey) {
@@ -424,7 +424,7 @@ fun YoutubeScreen(onBack: () -> Unit) {
                         )
                         VideoTab.COLLECTION -> YoutubeCollection(
                             videos = videos,
-                            downloads = activeDownloads,
+                            activeDownloads = downloadTasks,
                             onRefresh = { vm.refresh(context) },
                             onSelectVideo = { selectedLocalVideoId = it.id },
                             modifier = Modifier.fillMaxSize().padding(horizontal = if (useNavigationRail) 24.dp else 14.dp),
