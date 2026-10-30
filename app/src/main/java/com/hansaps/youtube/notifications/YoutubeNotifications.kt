@@ -13,7 +13,9 @@ import android.os.Looper
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.hansaps.MainActivity
@@ -216,21 +218,22 @@ class YoutubeMediaActionReceiver : BroadcastReceiver() {
     }
 }
 
-/** Progress notifications for YouTube video downloads, parallel to the music downloader notification. */
+/** Progress notifications for YouTube video downloads, using the same Android 10-safe behavior as music downloads. */
 object YoutubeDownloadNotification {
+    private const val TAG = "YoutubeDownloadNotif"
     private const val CHANNEL_ID = "hansaps_youtube_downloads"
     private const val CHANNEL_NAME = "Download Video YT"
 
     fun showProgress(context: Context, key: String, title: String, percent: Int, message: String, indeterminate: Boolean = false) {
-        show(context, key, title, message, true, percent.coerceIn(0, 100), indeterminate, completed = false)
+        show(context, key, title, message, true, percent.coerceIn(0, 100), indeterminate)
     }
 
     fun showCompleted(context: Context, key: String, title: String, quality: String) {
-        show(context, key, title, "Video tersimpan offline · $quality", false, 100, false, completed = true)
+        show(context, key, title, "Video tersimpan offline · $quality", false, 0, false)
     }
 
     fun showFailed(context: Context, key: String, title: String, message: String) {
-        show(context, key, title, "Download gagal: ${message.take(140)}", false, 0, false, completed = false)
+        show(context, key, title, "Download gagal: ${message.take(140)}", false, 0, false)
     }
 
     private fun show(
@@ -241,41 +244,69 @@ object YoutubeDownloadNotification {
         ongoing: Boolean,
         percent: Int,
         indeterminate: Boolean,
-        completed: Boolean,
     ) {
         val app = context.applicationContext
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Progres penyimpanan video YouTube untuk tontonan offline"
-                    setShowBadge(false)
-                },
-            )
+            runCatching {
+                val manager = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                    manager.createNotificationChannel(
+                        NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
+                            description = "Progres dan hasil penyimpanan video untuk ditonton offline"
+                            setShowBadge(false)
+                            setSound(null, null)
+                            enableVibration(false)
+                            enableLights(false)
+                        },
+                    )
+                }
+            }.onFailure { Log.w(TAG, "Tidak dapat menyiapkan kanal notifikasi", it) }
         }
+
+        val notifications = NotificationManagerCompat.from(app)
+        if (!notifications.areNotificationsEnabled()) {
+            Log.w(TAG, "Notifikasi aplikasi dinonaktifkan oleh pengguna; unduhan video tetap berjalan")
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = (app.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)
+                ?.getNotificationChannel(CHANNEL_ID)
+            if (channel?.importance == NotificationManager.IMPORTANCE_NONE) {
+                Log.w(TAG, "Kanal unduhan video dinonaktifkan oleh pengguna")
+                return
+            }
+        }
+
         val id = 100_000 + (key.hashCode() and 0x3fff)
-        val openIntent = Intent(app, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        val builder = NotificationCompat.Builder(app, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification_media)
-            .setContentTitle(title.ifBlank { "Download Video YT" })
-            .setContentText(message)
-            .setSubText("Download Video YT")
-            .setContentIntent(PendingIntent.getActivity(app, id, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setOngoing(ongoing)
-            .setAutoCancel(!ongoing)
-        if (ongoing) builder.setProgress(100, percent, indeterminate)
-        else builder.setProgress(0, 0, false)
-        (app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).notify(id, builder.build())
+        runCatching {
+            val openIntent = Intent(app, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            val contentIntent = PendingIntent.getActivity(
+                app, id, openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val builder = NotificationCompat.Builder(app, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification_download)
+                .setContentTitle(title.ifBlank { "Download Video YT" })
+                .setContentText(message)
+                .setSubText("HANSAPS  ·  YOUTUBE")
+                .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+                .setContentIntent(contentIntent)
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setColor(0xFFFF3030.toInt())
+                .setOnlyAlertOnce(true)
+                .setSilent(true)
+                .setDefaults(0)
+                .setOngoing(ongoing)
+                .setAutoCancel(!ongoing)
+                .setProgress(if (ongoing) 100 else 0, if (ongoing) percent else 0, ongoing && indeterminate)
+            notifications.notify(id, builder.build())
+        }.onFailure { Log.w(TAG, "Gagal menampilkan notifikasi video untuk key=$key", it) }
     }
 }
-
 
 /** Keeps the media notification alive while the activity is backgrounded. */
 class YoutubePlaybackService : Service() {

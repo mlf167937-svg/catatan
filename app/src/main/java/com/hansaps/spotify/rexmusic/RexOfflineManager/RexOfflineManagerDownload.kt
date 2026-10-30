@@ -169,6 +169,7 @@ internal fun RexOfflineManager.__splitImpl_download(track: RexTrack) {
             }
         }
         jobs[key] = job
+        RexMusicDownloadService.start(appContext)
         job.start()
     }
 

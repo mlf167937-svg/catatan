@@ -217,8 +217,10 @@ object RexOfflineManager {
         return this.__splitImpl_download(track)
     }
 
-    fun cancel(track: RexTrack) {
-        jobs[offlineKey(track)]?.cancel()
+    fun cancel(track: RexTrack) = cancelByKey(offlineKey(track))
+
+    internal fun cancelByKey(key: String) {
+        jobs[key]?.cancel()
     }
 
     fun delete(track: RexTrack) {

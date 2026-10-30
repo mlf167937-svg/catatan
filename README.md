@@ -13,7 +13,7 @@ Included flows:
 
 - Home with quick tiles, **Mix Pintar**, an **Autoplay Pintar / Smart Next Play** toggle, popular artists, last-played history, recommendations, and a visible **30 Lagu Pilihan** shelf.
 - Search, playlists, library, local downloads, user queue, playback history, repeat, synchronized/plain lyrics, and a dedicated Now Playing experience.
-- Audio resolution through Nexray, a foreground media notification, offline playback/download management, and LAN listen-together sync.
+- Audio resolution through Nexray, a foreground media notification, offline playback/download management, and LAN listen-together sync. Music downloads use a `dataSync` foreground service with grouped, cancelable progress notifications; the music and video download notification channels are compatible with Android 10 and newer.
 - Audio/lyrics caches and learned artist preferences used by Smart Next Play. When enabled, the controller consumes the user queue first, then selects a next song using recent-play avoidance and listening taste/popular songs.
 - Music downloads and playlists use `Download/HansAps/Spotify/`; sync cache uses `Download/HansAps/.cache/spotifySync/`.
 
