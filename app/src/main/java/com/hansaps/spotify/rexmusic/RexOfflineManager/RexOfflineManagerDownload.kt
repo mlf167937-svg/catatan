@@ -169,6 +169,9 @@ internal fun RexOfflineManager.__splitImpl_download(track: RexTrack) {
             }
         }
         jobs[key] = job
+        // Start from the user's download action while the app is foregrounded.
+        // The FGS keeps the notification and transfer visible on Android 10+.
+        RexMusicDownloadService.start(appContext)
         job.start()
     }
 

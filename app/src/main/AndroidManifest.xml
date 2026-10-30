@@ -62,5 +62,10 @@
             android:name=".spotify.rexmusic.RexMusicService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <service
+            android:name=".spotify.rexmusic.RexMusicDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

@@ -10,7 +10,10 @@ import com.hansaps.R
 
 /** Download notifications are best-effort and must never interrupt the actual file download. */
 object RexDownloadNotification {
-    private const val CHANNEL_ID = "hansaps_music_downloads"
+    // Public constants are shared by foreground download services. Keep the v2 channel
+    // so an older, user-modified channel cannot silently retain an obsolete importance.
+    const val CHANNEL_ID = "hansaps_music_downloads_v2"
+    const val GROUP_KEY = "com.hansaps.DOWNLOADS.MUSIC"
     private const val CHANNEL_NAME = "Unduhan musik"
 
     fun init(context: Context) {
@@ -23,7 +26,7 @@ object RexDownloadNotification {
                     NotificationChannel(
                         CHANNEL_ID,
                         CHANNEL_NAME,
-                        NotificationManager.IMPORTANCE_LOW
+                        NotificationManager.IMPORTANCE_DEFAULT
                     ).apply {
                         description = "Progres dan hasil unduhan musik HansAps"
                         setShowBadge(false)
@@ -86,6 +89,9 @@ object RexDownloadNotification {
                 .setAutoCancel(!ongoing)
                 .setProgress(100, progress, indeterminate)
                 .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setGroup(GROUP_KEY)
+                .setPriority(NotificationCompat.PRIORITY_LOW)
+                .setSilent(true)
                 .build()
             manager.notify(43_000 + key.hashCode().and(0x7fff), notification)
         }

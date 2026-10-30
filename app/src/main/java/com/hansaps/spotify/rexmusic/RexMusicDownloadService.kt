@@ -1,9 +1,7 @@
 package com.hansaps.spotify.rexmusic
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -14,7 +12,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
-import androidx.core.content.ContextCompat
 import com.hansaps.MainActivity
 import com.hansaps.R
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +21,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
-/** Keeps music downloads alive while the app is backgrounded and publishes a grouped summary. */
+/** Keeps Spotify/offline music downloads visible and alive while HansAps is backgrounded. */
 class RexMusicDownloadService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -32,12 +29,13 @@ class RexMusicDownloadService : Service() {
         super.onCreate()
         RexOfflineManager.init(applicationContext)
         createChannel()
+        // Android requires the initial foreground notification immediately after service start.
         startForegroundCompat(buildSummary(RexOfflineManager.state.value))
 
         serviceScope.launch {
             RexOfflineManager.state.collect { state ->
                 if (state.downloads.isEmpty()) {
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopForegroundCompat()
                     stopSelf()
                 } else if (NotificationManagerCompat.from(this@RexMusicDownloadService).areNotificationsEnabled()) {
                     runCatching {
@@ -58,34 +56,21 @@ class RexMusicDownloadService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
-                    description = "Status unduhan musik saat aplikasi berada di latar belakang"
-                    setShowBadge(false)
-                    setSound(null, null)
-                    enableVibration(false)
-                    enableLights(false)
-                },
-            )
-        }
-    }
+    private fun createChannel() = RexDownloadNotification.init(this)
 
     private fun buildSummary(state: OfflineState): Notification {
         val active = state.downloads.values.toList()
-        val knownProgress = active.mapNotNull { it.percent.takeIf { percent -> percent >= 0 } }
+        val knownProgress = active.mapNotNull { it.percent.takeIf { pct -> pct >= 0 } }
         val percent = if (knownProgress.isEmpty()) 0 else knownProgress.average().toInt().coerceIn(0, 100)
         val indeterminate = knownProgress.size != active.size
         val title = if (active.size == 1) active.first().track.title else "${active.size} lagu sedang diunduh"
         val detail = if (active.size == 1) {
-            when (active.first().stage) {
+            val status = active.first()
+            when (status.stage) {
                 DownloadStage.Queued -> "Menunggu antrean"
                 DownloadStage.Resolving -> "Menyiapkan sumber audio"
-                DownloadStage.Downloading -> if (active.first().percent >= 0) "Mengunduh · ${active.first().percent}%" else "Mengunduh audio…"
-                DownloadStage.FetchingLyrics -> "Mengambil lirik"
+                DownloadStage.Downloading -> if (status.percent >= 0) "Mengunduh · ${status.percent}%" else "Mengunduh audio…"
+                DownloadStage.FetchingLyrics -> "Audio selesai · mengambil lirik"
                 DownloadStage.Finalizing -> "Menyimpan ke koleksi offline"
             }
         } else {
@@ -94,13 +79,13 @@ class RexMusicDownloadService : Service() {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val contentIntent = PendingIntent.getActivity(
+        val contentIntent = android.app.PendingIntent.getActivity(
             this,
             SUMMARY_NOTIFICATION_ID,
             openIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE,
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, RexDownloadNotification.CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_download)
             .setContentTitle("Unduhan musik aktif")
             .setContentText(title)
@@ -134,10 +119,17 @@ class RexMusicDownloadService : Service() {
         }
     }
 
+    private fun stopForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+    }
+
     companion object {
         private const val TAG = "RexMusicDownloadService"
-        private const val CHANNEL_ID = "hansaps_music_downloads"
-        private const val CHANNEL_NAME = "Unduhan musik"
         private const val SUMMARY_NOTIFICATION_ID = 42_999
 
         fun start(context: Context) {
@@ -145,7 +137,7 @@ class RexMusicDownloadService : Service() {
             runCatching {
                 val intent = Intent(app, RexMusicDownloadService::class.java)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    ContextCompat.startForegroundService(app, intent)
+                    androidx.core.content.ContextCompat.startForegroundService(app, intent)
                 } else {
                     app.startService(intent)
                 }
