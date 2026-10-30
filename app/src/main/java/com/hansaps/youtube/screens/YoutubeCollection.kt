@@ -53,6 +53,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.ScreenRotation
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
@@ -86,24 +87,40 @@ import com.hansaps.youtube.ui.PressScale
 import com.hansaps.youtube.ui.YtEmptyState
 import com.hansaps.youtube.ui.YtPalette
 import com.hansaps.youtube.notifications.YoutubePlaybackNotification
+import com.hansaps.youtube.notifications.YoutubeDownloadUiState
 import kotlinx.coroutines.delay
 
 @Composable
 fun YoutubeCollection(
     videos: List<LocalVideo>,
+    downloads: List<YoutubeDownloadUiState> = emptyList(),
     onRefresh: () -> Unit,
     onSelectVideo: (LocalVideo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         CollectionHeader(count = videos.size, onRefresh = onRefresh)
+        downloads.forEach { item -> CollectionDownloadCard(item) }
 
         if (videos.isEmpty()) {
-            YtEmptyState(
-                icon = Icons.Rounded.Movie,
-                title = "Belum ada video",
-                body = "Cari video di tab Jelajahi lalu tekan Download. Video yang sudah tersimpan dapat diputar tanpa internet.",
-            )
+            if (downloads.isEmpty()) {
+                YtEmptyState(
+                    icon = Icons.Rounded.Movie,
+                    title = "Belum ada video",
+                    body = "Cari video di tab Jelajahi lalu tekan Download. Video yang sudah tersimpan dapat diputar tanpa internet.",
+                )
+            } else {
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Video yang selesai diunduh akan muncul di sini.",
+                        color = YtPalette.Muted,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
         } else {
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 if (maxWidth >= 620.dp) {
@@ -130,6 +147,80 @@ fun YoutubeCollection(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun CollectionDownloadCard(item: YoutubeDownloadUiState) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = if (item.failed) Color(0xFFFFF1F1) else YtPalette.Surface,
+        border = BorderStroke(1.dp, if (item.failed) Color(0xFFFFD6D6) else YtPalette.Border),
+        shadowElevation = 1.dp,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 13.dp, vertical = 11.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Rounded.Movie,
+                    contentDescription = null,
+                    tint = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
+                    modifier = Modifier.size(19.dp),
+                )
+                Spacer(Modifier.size(8.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    Text(
+                        item.title,
+                        color = YtPalette.Text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        "YouTube · ${item.quality}",
+                        color = YtPalette.Muted,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    when {
+                        item.failed -> "Gagal"
+                        item.finished -> "Selesai"
+                        item.indeterminate -> "Proses"
+                        else -> "${item.percent.coerceIn(0, 100)}%"
+                    },
+                    color = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            if (item.indeterminate && !item.finished) {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth().height(5.dp),
+                    color = YtPalette.Red,
+                    trackColor = YtPalette.SurfaceAlt,
+                )
+            } else {
+                LinearProgressIndicator(
+                    progress = { if (item.failed) 0f else item.percent.coerceIn(0, 100) / 100f },
+                    modifier = Modifier.fillMaxWidth().height(5.dp),
+                    color = if (item.failed) Color(0xFFB3261E) else YtPalette.Red,
+                    trackColor = YtPalette.SurfaceAlt,
+                )
+            }
+            Text(
+                item.message,
+                color = if (item.failed) Color(0xFFB3261E) else YtPalette.Muted,
+                fontSize = 10.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

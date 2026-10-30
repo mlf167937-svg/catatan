@@ -10,6 +10,7 @@ import com.hansaps.core.NexrayYoutubeVideo
 import com.hansaps.youtube.Engine.AuthorizedVideoSource
 import com.hansaps.youtube.Engine.YoutubeDownloadManager
 import com.hansaps.youtube.Engine.YoutubeDownloadOption
+import com.hansaps.youtube.notifications.YoutubeDownloadService
 import com.hansaps.youtube.notifications.YoutubeDownloadNotification
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -93,36 +94,27 @@ class YoutubeViewModel : ViewModel() {
             mutableMessage.value = "Video ini tidak memiliki audio gabungan dan Nexray tidak menyediakan audio M4A untuk digabungkan."
             return
         }
-        viewModelScope.launch {
-            val appContext = context.applicationContext
-            val notificationKey = "${video.id}_${option.quality}"
-            mutableMessage.value = "Mengunduh video ${option.quality}…"
-            val result = YoutubeDownloadManager.download(
-                appContext,
-                AuthorizedVideoSource(
-                    title = video.title,
-                    videoId = video.id,
-                    directUrl = option.directUrl,
-                    quality = option.quality,
-                    thumbnailUrl = video.thumbnail.ifBlank { null },
-                    audioUrl = option.audioUrl.takeUnless { option.hasAudio },
-                    sourceLabel = "Nexray API",
-                ),
-            ) { progress ->
-                YoutubeDownloadNotification.showProgress(
-                    appContext, notificationKey, video.title,
-                    progress.percent, progress.message, progress.indeterminate,
-                )
+        val notificationKey = "${video.id}_${option.quality}"
+        val source = AuthorizedVideoSource(
+            title = video.title,
+            videoId = video.id,
+            directUrl = option.directUrl,
+            quality = option.quality,
+            thumbnailUrl = video.thumbnail.ifBlank { null },
+            audioUrl = option.audioUrl.takeUnless { option.hasAudio },
+            sourceLabel = "Nexray API",
+        )
+        runCatching { YoutubeDownloadService.start(context, source, notificationKey) }
+            .onSuccess {
+                mutableMessage.value = if (YoutubeDownloadNotification.notificationsEnabled(context)) {
+                    "Mengunduh ${video.title} · ${option.quality}. Progres tampil di Koleksi dan notifikasi."
+                } else {
+                    "Download dimulai. Notifikasi HansAps sedang dimatikan di setelan Android; progres tetap terlihat di Koleksi."
+                }
             }
-            result.onSuccess {
-                YoutubeDownloadNotification.showCompleted(appContext, notificationKey, it.title, option.quality)
-                refresh(context)
-                mutableMessage.value = "${it.title} disimpan ke Download/HansAps/Youtube pada kualitas ${option.quality}."
-            }.onFailure {
-                YoutubeDownloadNotification.showFailed(appContext, notificationKey, video.title, it.message ?: "Kesalahan jaringan")
-                mutableMessage.value = it.message ?: "Download video gagal."
+            .onFailure { error ->
+                mutableMessage.value = "Tidak bisa memulai layanan download: ${error.message ?: "kesalahan sistem"}"
             }
-        }
     }
 
     fun consumeMessage() { mutableMessage.value = null }
