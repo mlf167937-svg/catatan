@@ -3,6 +3,7 @@ package com.hansaps.localaccount
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
+import android.util.AtomicFile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -38,6 +39,7 @@ import org.json.JSONObject
 internal fun __splitImpl_rememberRexProfileController(): RexProfileController {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    RexPaths.initialize(context)
     val ctl = remember { RexProfileController(context, scope) }
 
     val bannerPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
@@ -58,7 +60,10 @@ internal fun __splitImpl_rememberRexProfileController(): RexProfileController {
     ctl.onPickStoryVideo = { storyVideoPicker.launch("video/*") }
     ctl.onPickVideo = { videoPicker.launch(arrayOf("video/mp4", "image/png", "image/jpeg")) }
 
-    LaunchedEffect(Unit) { ctl.load() }
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { RexPaths.migrateLegacyIfNeeded() }
+        ctl.load()
+    }
     return ctl
 }
 
@@ -328,7 +333,11 @@ internal fun RexProfileController.__splitImpl_addStoryVideo(uri: Uri?) {
     }
 
 internal fun __splitImpl_writeAccount(a: RexLocalAccount) {
-    RexPaths.config.parentFile?.mkdirs()
+    val config = RexPaths.config
+    val parent = config.parentFile ?: throw java.io.IOException("Folder akun tidak tersedia")
+    if (!parent.isDirectory && !parent.mkdirs()) {
+        throw java.io.IOException("Folder akun tidak dapat dibuat di penyimpanan aplikasi")
+    }
     val j = JSONObject()
         .put("name", a.name).put("username", a.username).put("bio", a.bio)
         .put("banner", a.bannerPath).put("bannerVideo", a.bannerVideo)
@@ -336,7 +345,16 @@ internal fun __splitImpl_writeAccount(a: RexLocalAccount) {
         .put("profilePicture", a.picturePath).put("profileVideo", a.pictureVideo)
         .put("pictureScale", a.pictureScale.toDouble()).put("pictureX", a.pictureX.toDouble()).put("pictureY", a.pictureY.toDouble())
         .put("updatedAt", System.currentTimeMillis())
-    RexPaths.config.writeText(j.toString(2))
+    val atomic = AtomicFile(config)
+    var stream: java.io.FileOutputStream? = null
+    try {
+        stream = atomic.startWrite()
+        stream.write(j.toString(2).toByteArray(Charsets.UTF_8))
+        atomic.finishWrite(stream)
+    } catch (error: Throwable) {
+        stream?.let { runCatching { atomic.failWrite(it) } }
+        throw error
+    }
 }
 
 internal fun __splitImpl_renderCrop(src: Bitmap, aspect: Float, outW: Int, s: Float, ox: Float, oy: Float): Bitmap {

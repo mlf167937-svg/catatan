@@ -2,20 +2,34 @@ package com.hansaps.spotify.rexmusic
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.hansaps.R
 
-/** Compact download notifications, without RexMusic's legacy RemoteViews resource dependency. */
+/** Download notifications are best-effort and must never interrupt the actual file download. */
 object RexDownloadNotification {
     private const val CHANNEL_ID = "hansaps_music_downloads"
     private const val CHANNEL_NAME = "Unduhan musik"
 
     fun init(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW))
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        runCatching {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return@runCatching
+            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        CHANNEL_ID,
+                        CHANNEL_NAME,
+                        NotificationManager.IMPORTANCE_LOW
+                    ).apply {
+                        description = "Progres dan hasil unduhan musik HansAps"
+                        setShowBadge(false)
+                    }
+                )
+            }
         }
     }
 
@@ -39,18 +53,41 @@ object RexDownloadNotification {
     fun showFailed(context: Context, key: String, track: RexTrack, message: String) =
         show(context, key, track.title, "Unduhan gagal: $message", false, 0, false)
 
-    private fun show(context: Context, key: String, title: String, text: String, ongoing: Boolean, progress: Int, indeterminate: Boolean) {
-        init(context)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_hansaps)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setOnlyAlertOnce(true)
-            .setOngoing(ongoing)
-            .setProgress(100, progress, indeterminate)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .build()
-        (context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager)
-            .notify(43_000 + key.hashCode().and(0x7fff), notification)
+    private fun show(
+        context: Context,
+        key: String,
+        title: String,
+        text: String,
+        ongoing: Boolean,
+        progress: Int,
+        indeterminate: Boolean
+    ) {
+        // A ROM-specific notification failure should not cancel an otherwise valid download.
+        runCatching {
+            init(context)
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+                ?: return@runCatching
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val contentIntent = launchIntent?.let {
+                PendingIntent.getActivity(
+                    context,
+                    43_000 + key.hashCode().and(0x7fff),
+                    it,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
+            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification_download)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setContentIntent(contentIntent)
+                .setOnlyAlertOnce(true)
+                .setOngoing(ongoing)
+                .setAutoCancel(!ongoing)
+                .setProgress(100, progress, indeterminate)
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .build()
+            manager.notify(43_000 + key.hashCode().and(0x7fff), notification)
+        }
     }
 }

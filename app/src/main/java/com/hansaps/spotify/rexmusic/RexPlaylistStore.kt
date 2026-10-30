@@ -6,22 +6,33 @@ import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Playlist user disimpan sebagai JSON mandiri di Download/HansAps/Spotify. */
+/** Playlist user disimpan sebagai JSON mandiri di penyimpanan privat aplikasi. */
 class RexPlaylistStore(context: Context) {
     companion object {
-        const val DISPLAY_PATH = "Download/HansAps/Spotify"
+        const val DISPLAY_PATH = "HansAps/Spotify (penyimpanan aplikasi)"
         private const val ROOT = "HansAps/Spotify"
         private const val EXT = ".json"
     }
 
     private val appContext = context.applicationContext
     private val root: File
-        get() = File(
+        get() = File(appContext.filesDir, ROOT)
+
+    fun ensureRoot(): Boolean = runCatching {
+        if (!root.isDirectory && !root.mkdirs()) return@runCatching false
+        val legacy = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             ROOT
         )
-
-    fun ensureRoot(): Boolean = runCatching { root.exists() || root.mkdirs() }.getOrDefault(false)
+        if (legacy.isDirectory) {
+            legacy.listFiles { file -> file.isFile && file.extension.equals("json", true) }
+                ?.forEach { old ->
+                    val target = File(root, old.name)
+                    if (!target.exists()) runCatching { old.copyTo(target, overwrite = false) }
+                }
+        }
+        root.canWrite()
+    }.getOrDefault(false)
 
     fun list(): List<RexPlaylist> {
         if (!ensureRoot()) return emptyList()

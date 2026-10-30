@@ -111,7 +111,7 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_distributeLocalTrack(track: 
     }
     _state.value = _state.value.copy(
         cacheStatus = if (failures == 0) "Cache siap di ${peersSnapshot.size} anggota" else "Transfer gagal ke $failures anggota",
-        error = if (failures == 0) null else "Cek koneksi, port $TRANSFER_PORT, serta izin penyimpanan di perangkat penerima."
+        error = if (failures == 0) null else "Cek koneksi, port $TRANSFER_PORT, serta ruang penyimpanan di perangkat penerima."
     )
 }
 

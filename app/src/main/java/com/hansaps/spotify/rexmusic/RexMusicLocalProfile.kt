@@ -7,6 +7,7 @@ import android.media.MediaMetadataRetriever
 import android.util.Base64
 import java.io.ByteArrayOutputStream
 import android.os.Environment
+import com.hansaps.localaccount.RexPaths
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,21 +53,16 @@ internal data class RexLocalProfileSnapshot(
 )
 
 internal object RexLocalProfileBridge {
-    private fun configFile(): File = File(
-        File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "HansAps/.config"
-        ),
-        "account.json"
-    )
+    private fun configFile(): File = RexPaths.config
 
     fun read(): RexLocalProfileSnapshot {
         val downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val candidates = listOf(
+            configFile(),
             File(File(downloads, "HansAps/.config"), "account.json"),
             // Compatibility fallback when both APKs are installed on the same Android device.
             File(File(downloads, "RexAps/.config"), "account.json")
-        )
+        ).distinctBy { it.absolutePath }
         for (file in candidates) {
             val profile = runCatching {
                 if (!file.isFile) return@runCatching null

@@ -9,10 +9,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.LaunchedEffect
 import com.hansaps.core.HansApsTheme
 import com.hansaps.home.HansApsApp
+import com.hansaps.localaccount.RexPaths
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        RexPaths.initialize(applicationContext)
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 704)
         }

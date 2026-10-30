@@ -43,10 +43,8 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_receiveBundle(socket: Socket
                         remaining -= n
                     }
                 }
-                val base = File(
-                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                    "HansAps/.cache/spotifySync/${offlineKey(track)}"
-                )
+                val appFiles = appContextRef?.filesDir ?: error("Context aplikasi belum siap")
+                val base = File(appFiles, "HansAps/.cache/spotifySync/${offlineKey(track)}")
                 base.mkdirs()
                 ZipInputStream(tempZip.inputStream().buffered()).use { zip ->
                     var entry = zip.nextEntry
@@ -63,7 +61,7 @@ internal suspend fun RexMusicSyncEngine.__splitImpl_receiveBundle(socket: Socket
                 require(audio.isFile && audio.length() > 0L) { "Cache audio kosong" }
                 File(base, "meta.json").writeText(trackJson(track).toString())
                 val imported = RexOfflineManager.importSyncTrack(track, base)
-                require(imported) { "Tidak bisa menyimpan ke ${RexOfflineManager.DISPLAY_PATH}; cek izin akses file" }
+                require(imported) { "Tidak bisa menyalin file ke library offline aplikasi; periksa ruang penyimpanan perangkat" }
                 // ACK is sent only after the item exists in the destination app's own library.
                 RexOfflineManager.refreshNow()
                 _state.value = _state.value.copy(cacheStatus = "Hybrid sync siap: ${track.title}", error = null)

@@ -1,5 +1,7 @@
 package com.hansaps.spotify.rexmusic
 
+import com.hansaps.localaccount.RexPaths
+
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
@@ -81,6 +83,7 @@ object RexPlayerController {
         if (initialized) return
         initialized = true
         appContext = context.applicationContext
+        RexPaths.initialize(appContext)
         audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         store = RexHistoryStore(appContext)
         queueStore = RexQueueStore(appContext)

@@ -46,13 +46,18 @@ internal fun RexProfileController.__splitImpl_applyCrop(req: CropReq, bmp: Bitma
             busy = "Memproses…"
             val prev = acct
             val result = withContext(Dispatchers.IO) {
-                try {
-                    RexPaths.account.mkdirs()
+                runCatching {
+                    if (!RexPaths.account.isDirectory && !RexPaths.account.mkdirs()) {
+                        throw java.io.IOException("Folder profil tidak dapat dibuat di penyimpanan aplikasi")
+                    }
                     val isAvatar = req.target == CropTarget.AVATAR
                     val still = if (isAvatar) renderCrop(bmp, 1f, 768, s, ox, oy)
                     else renderCrop(bmp, BANNER_ASPECT, 1600, s, ox, oy)
                     val png = File(RexPaths.account, if (isAvatar) "profile-pictures.png" else "banner.png")
-                    FileOutputStream(png).use { still.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    val wroteImage = FileOutputStream(png).use { still.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    if (!wroteImage || !png.isFile || png.length() <= 0L) {
+                        throw java.io.IOException("Gambar profil gagal ditulis")
+                    }
 
                     val vf = File(RexPaths.account, if (isAvatar) "profile-video.mp4" else "banner.mp4")
                     var vpath = ""
@@ -71,16 +76,20 @@ internal fun RexProfileController.__splitImpl_applyCrop(req: CropReq, bmp: Bitma
                     writeAccount(a)
                     req.video?.file?.delete()
                     a to videoFailed
-                } catch (e: Exception) { null }
+                }
             }
             busy = null
-            if (result == null) {
-                toast("Gagal menyimpan (cek izin)")
-            } else {
-                acct = result.first
-                rev++
-                if (result.second) toast("Video tidak bisa diproses, dipakai sebagai foto")
-            }
+            result.fold(
+                onSuccess = { saved ->
+                    acct = saved.first
+                    rev++
+                    if (saved.second) toast("Video tidak bisa diproses, dipakai sebagai foto")
+                },
+                onFailure = { error ->
+                    val detail = error.message?.takeIf { it.isNotBlank() } ?: error.javaClass.simpleName
+                    toast("Gagal menyimpan: $detail")
+                }
+            )
         }
     }
 
@@ -130,43 +139,8 @@ internal fun __splitImpl_StoryTile(st: RexStory, acct: RexLocalAccount, rev: Int
 @Composable
 internal fun __splitImpl_RexLocalAccountScreen(padding: PaddingValues) {
     val context = LocalContext.current
-    var granted by remember { mutableStateOf(hasStorageAccess(context)) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-
-    DisposableEffect(lifecycle) {
-        val ob = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_RESUME) granted = hasStorageAccess(context)
-        }
-        lifecycle.addObserver(ob)
-        onDispose { lifecycle.removeObserver(ob) }
-    }
-
-    val legacyLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { granted = hasStorageAccess(context) }
-
-    if (!granted) {
-        PermissionGate(padding) {
-            if (Build.VERSION.SDK_INT >= 30) {
-                try {
-                    context.startActivity(
-                        Intent(
-                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                            Uri.parse("package:${context.packageName}")
-                        )
-                    )
-                } catch (e: Exception) {
-                    context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                }
-            } else {
-                legacyLauncher.launch(
-                    arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                )
-            }
-        }
-    } else {
-        RexProfileRoot(padding)
-    }
+    RexPaths.initialize(context)
+    RexProfileRoot(padding)
 }
 
 @Composable

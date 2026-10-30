@@ -1,11 +1,7 @@
 package com.hansaps.spotify.rexmusic
 
-import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -118,39 +114,6 @@ internal fun __splitImpl_RexMusicContent(
         if (typing) {
             delay(450)
             typing = false
-        }
-    }
-
-    val settingsLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        vm.refreshOffline()
-    }
-
-    val storageLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) {
-        vm.refreshOffline()
-    }
-
-    val openStorageSettings: () -> Unit = {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val appIntent = Intent(
-                Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                Uri.parse("package:${context.packageName}")
-            )
-
-            try {
-                settingsLauncher.launch(appIntent)
-            } catch (_: Exception) {
-                settingsLauncher.launch(
-                    Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                )
-            }
-        } else {
-            storageLauncher.launch(
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            )
         }
     }
 
@@ -774,25 +737,24 @@ internal fun __splitImpl_RexMusicContent(
             },
 
             title = {
-                Text("Izinkan akses penyimpanan")
+                Text("Penyimpanan aplikasi tidak tersedia")
             },
 
             text = {
                 Text(
-                    "Lagu yang diunduh disimpan di " +
-                        "${RexOfflineManager.DISPLAY_PATH}/ " +
-                        "supaya mudah kamu buka dan hapus lewat aplikasi File. " +
-                        "Aplikasi butuh izin akses penyimpanan untuk itu."
+                    "Unduhan disimpan di ruang privat HansAps (${RexOfflineManager.DISPLAY_PATH}) dan tidak memerlukan izin storage. " +
+                        "Periksa ruang penyimpanan internal perangkat, lalu coba lagi."
                 )
             },
 
             confirmButton = {
                 TextButton(
                     onClick = {
-                        openStorageSettings()
+                        showStorageDialog = false
+                        vm.refreshOffline()
                     }
                 ) {
-                    Text("Buka pengaturan")
+                    Text("Coba lagi")
                 }
             },
 

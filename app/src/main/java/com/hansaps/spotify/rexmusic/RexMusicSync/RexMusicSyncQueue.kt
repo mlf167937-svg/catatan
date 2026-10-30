@@ -81,7 +81,7 @@ internal fun RexMusicSyncEngine.__splitImpl_playQueued(track: RexTrack) {
         if (_state.value.hosting) scope.launch {
             delay(500L)
             val offline = RexOfflineManager.findEntry(track)
-            if (offline == null) { _state.value = _state.value.copy(error = "Transfer lagu belum selesai atau izin penyimpanan belum aktif."); return@launch }
+            if (offline == null) { _state.value = _state.value.copy(error = "Transfer lagu belum selesai atau file belum tersedia di library offline."); return@launch }
             sharedQueue.removeAll { it.id == track.id }; publishQueue(); playTrack(offline.track)
         } else if (_state.value.connected) runCatching { clientWriter?.let { send(it, JSONObject().put("type", "play_request").put("trackId", track.id)) } }
     }

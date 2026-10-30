@@ -109,8 +109,8 @@ internal fun RexMusicSyncEngine.__splitImpl_playTrack(track: RexTrack) {
     val local = RexOfflineManager.findEntry(track)
     if (local == null) {
         _state.value = _state.value.copy(
-            error = "Lagu belum tersedia di Download/HansAps/Spotify atau Download/RexAps/Music.",
-            cacheStatus = "Unduh lagu atau beri izin akses semua file."
+            error = "Lagu belum tersedia di library offline HansAps atau Download/RexAps/Music.",
+            cacheStatus = "Unduh lagu ke koleksi offline HansAps terlebih dahulu."
         )
         return
     }
@@ -143,7 +143,7 @@ internal fun RexMusicSyncEngine.__splitImpl_playTrack(track: RexTrack) {
             val failed = results.filterNot { it.second }.map { it.first.name }
             _state.value = _state.value.copy(
                 cacheStatus = if (failed.isEmpty()) "File siap di ${targets.size} perangkat" else "Transfer gagal: ${failed.joinToString()}",
-                error = if (failed.isEmpty()) null else "Sebagian perangkat tidak menerima file. Periksa izin penyimpanan dan koneksi Wi-Fi."
+                error = if (failed.isEmpty()) null else "Sebagian perangkat tidak menerima file. Periksa ruang penyimpanan dan koneksi Wi-Fi."
             )
         }
         if (!isActive || hostTrack?.id != resolvedTrack.id) return@launch

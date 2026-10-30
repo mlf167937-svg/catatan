@@ -21,6 +21,7 @@ import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.CoroutineScope
 import java.io.File
 import java.io.InputStream
+import org.json.JSONObject
 
 /* ═════════════════════ Konstanta & Model ═════════════════════ */
 
@@ -29,7 +30,58 @@ internal const val MAX_CLIP_MS = 4000L
 internal const val BANNER_ASPECT = 16f / 9f
 
 internal object RexPaths {
-    val base get() = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "HansAps/.config")
+    @Volatile private var appContext: Context? = null
+
+    /** Initialize before profile reads/writes. App-private storage works on Android 10+ without broad storage permission. */
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    private val storageBase: File
+        get() = File(
+            requireNotNull(appContext) { "RexPaths harus diinisialisasi dari Application Context terlebih dahulu" }.filesDir,
+            "HansAps/.config"
+        )
+
+    /** Best-effort incremental import from the former public Downloads location. Old files are never deleted. */
+    fun migrateLegacyIfNeeded() {
+        val target = storageBase
+        val legacy = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+            "HansAps/.config"
+        )
+        if (!legacy.isDirectory || legacy.absolutePath == target.absolutePath) return
+        runCatching {
+            target.mkdirs()
+            legacy.listFiles()?.forEach { old ->
+                val destination = File(target, old.name)
+                if (!destination.exists()) old.copyRecursively(destination, overwrite = false)
+            }
+            // The legacy JSON stored absolute paths under public Downloads. Re-point those paths
+            // to the copied private assets so the existing avatar/banner remains visible.
+            val configFile = File(target, "account.json")
+            if (configFile.isFile) {
+                runCatching {
+                    val json = JSONObject(configFile.readText())
+                    val accountDir = File(target, "account")
+                    listOf(
+                        "profilePicture" to "profile-pictures.png",
+                        "profileVideo" to "profile-video.mp4",
+                        "banner" to "banner.png",
+                        "bannerVideo" to "banner.mp4"
+                    ).forEach { (field, assetName) ->
+                        val stored = File(accountDir, assetName)
+                        if (stored.isFile && json.optString(field).isNotBlank()) {
+                            json.put(field, stored.absolutePath)
+                        }
+                    }
+                    configFile.writeText(json.toString(2))
+                }
+            }
+        }
+    }
+
+    val base get() = storageBase
     val account get() = File(base, "account")
     val video get() = File(account, "video")
     val story get() = File(base, "story")

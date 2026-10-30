@@ -136,7 +136,7 @@ internal suspend fun RexOfflineManager.__splitImpl_doDownload(track: RexTrack, k
 
 internal fun RexOfflineManager.__splitImpl_download(track: RexTrack) {
         if (!hasAccess(appContext)) {
-            _messages.tryEmit("Izin penyimpanan belum diberikan")
+            _messages.tryEmit("Penyimpanan privat aplikasi tidak dapat ditulis. Periksa ruang penyimpanan perangkat.")
             return
         }
         val key = offlineKey(track)

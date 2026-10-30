@@ -124,7 +124,7 @@ fun SpotifyHomeScreen(
                 SoftCard {
                     Text("Belum ada musik offline", color = HansColors.Text, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
-                    Text("Impor file audio di tab Koleksi. HansAps akan menyimpannya di Download/HansAps/Spotify/.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                    Text("Impor file audio di tab Koleksi. HansAps menyimpannya di ruang privat aplikasi agar kompatibel dengan Android 10 ke atas.", color = HansColors.Muted, fontSize = 12.sp, lineHeight = 18.sp)
                 }
             }
         } else {

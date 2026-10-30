@@ -51,13 +51,13 @@ fun OfflineState.isDownloaded(track: RexTrack, key: String = offlineKey(track)):
     keyFor(track, key) != null
 
 /**
- * Mengelola lagu offline di /storage/emulated/0/Download/HansAps/Spotify/<Judul-Artis>/
- *   music.mp3, thumbnail.jpg|png, meta.json
+ * Mengelola lagu offline di app-private files/HansAps/Spotify/<Judul-Artis>/
+ *   music.mp3, thumbnail.jpg|png, meta.json. This works on Android 10+ without broad storage permissions.
  * Unduhan berjalan paralel maks 2, lewat file .part dulu supaya tidak ada file setengah jadi.
  */
 object RexOfflineManager {
 
-    const val DISPLAY_PATH = "Download/HansAps/Spotify"
+    const val DISPLAY_PATH = "HansAps/Spotify (penyimpanan aplikasi)"
 
     internal const val AUDIO_NAME = "music.mp3"
     private const val META_NAME = "meta.json"
@@ -86,11 +86,27 @@ object RexOfflineManager {
     )
     val messages: SharedFlow<String> = _messages.asSharedFlow()
 
+    /** Private app storage avoids scoped-storage failures on Android 10 and ROM variants. */
     val root: File
-        get() = File(
+        get() {
+            check(::appContext.isInitialized) { "RexOfflineManager.init(context) harus dipanggil sebelum akses koleksi offline" }
+            return File(appContext.filesDir, "HansAps/Spotify")
+        }
+
+    private fun migrateLegacyDownloadsIfPossible() {
+        val legacy = File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
             "HansAps/Spotify"
         )
+        if (!legacy.isDirectory || legacy.absolutePath == root.absolutePath) return
+        runCatching {
+            root.mkdirs()
+            legacy.listFiles()?.forEach { old ->
+                val destination = File(root, old.name)
+                if (!destination.exists()) old.copyRecursively(destination, overwrite = false)
+            }
+        }
+    }
 
     /** Read-only compatibility source used by RexMusic: Download/RexAps/Music. */
     internal val rexApsRoot: File
@@ -130,15 +146,20 @@ object RexOfflineManager {
 
     //  Access & mode 
 
-    /** Android 11+: "Akses semua file". Android 10-: izin tulis penyimpanan biasa. */
-    fun hasAccess(context: Context): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ) == PackageManager.PERMISSION_GRANTED
+    /** Offline music is written only to this app's private directory; no storage permission is required. */
+    fun hasAccess(context: Context): Boolean = runCatching {
+        val dir = File(context.filesDir, "HansAps/Spotify")
+        if (!dir.isDirectory && !dir.mkdirs()) return@runCatching false
+        // Some vendor ROMs report canWrite() even when the filesystem is read-only.
+        // A tiny real write is a more reliable capability check than permission flags.
+        val probe = File(dir, ".write-check-${System.nanoTime()}")
+        try {
+            probe.outputStream().use { it.write(0x48) }
+            probe.isFile && probe.length() == 1L
+        } finally {
+            probe.delete()
         }
+    }.getOrDefault(false)
 
     fun setOfflineMode(on: Boolean) {
         prefs.edit().putBoolean(KEY_OFFLINE, on).apply()
@@ -153,7 +174,10 @@ object RexOfflineManager {
 
     internal suspend fun refreshNow() {
         val access = hasAccess(appContext)
-        val entries = if (access) withContext(Dispatchers.IO) { scan() } else emptyList()
+        val entries = if (access) withContext(Dispatchers.IO) {
+            migrateLegacyDownloadsIfPossible()
+            scan()
+        } else emptyList()
         _state.update {
             it.copy(
                 hasAccess = access,

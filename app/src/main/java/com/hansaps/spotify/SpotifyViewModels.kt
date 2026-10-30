@@ -165,7 +165,7 @@ class SpotifyViewModel : ViewModel() {
             }
             result.onSuccess {
                 refreshCollection(context)
-                mutableMessage.value = "${it.title} disimpan ke Download/HansAps/Spotify."
+                mutableMessage.value = "${it.title} berhasil disimpan ke koleksi offline."
             }.onFailure { mutableMessage.value = it.message ?: "Download musik gagal." }
         }
     }

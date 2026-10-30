@@ -37,14 +37,14 @@ data class DownloadStatus(
     val speedBytesPerSecond: Long = 0L
 )
 
-/** Satu lagu yang sudah tersimpan di Download/HansAps/Spotify. key = nama folder. */
+/** Satu lagu yang sudah tersimpan di penyimpanan privat HansAps. key = nama folder. */
 data class OfflineEntry(
     /** Unique row key. RexAps entries use the prefix "RexAps:" to avoid folder-name collisions. */
     val key: String,
     val track: RexTrack,
     val sizeBytes: Long = 0L,
     val savedAt: Long = 0L,
-    /** Absolute source folder. Primary library: Download/HansAps/Spotify; hybrid import: Download/RexAps/Music. */
+    /** Absolute source folder. Primary library: penyimpanan privat HansAps; legacy import: Download/RexAps/Music. */
     val sourcePath: String = "",
     /** "HansAps" or "RexAps"; external entries are read-only from HansAps. */
     val sourceApp: String = "HansAps"
@@ -83,7 +83,7 @@ data class RexMusicUiState(
     val popularCount: Int = 0,
     /** Data offline: daftar unduhan, progres unduhan, mode offline. */
     val offline: OfflineState = OfflineState(),
-    /** Playlist pengguna, disimpan sebagai file JSON di Download/HansAps/Spotify. */
+    /** Playlist pengguna, disimpan sebagai file JSON di penyimpanan privat HansAps. */
     val playlists: List<RexPlaylist> = emptyList(),
     /** True kalau lagu yang sedang diputar dibuka dari file offline. */
     val nowPlayingOffline: Boolean = false,

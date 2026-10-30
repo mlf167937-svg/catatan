@@ -1,7 +1,6 @@
 package com.hansaps.localaccount
 
 import android.graphics.Bitmap
-import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -42,19 +41,11 @@ internal fun __splitImpl_PermissionGate(padding: PaddingValues, onAllow: () -> U
         infiniteRepeatable(tween(1600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse"
     )
-    val steps = if (Build.VERSION.SDK_INT >= 30) {
-        listOf(
-            "Tekan tombol \"Izinkan akses\" di bawah",
-            "Aktifkan \"Izinkan akses ke semua file\"",
-            "Kembali ke HansAps, halaman akan terbuka otomatis"
-        )
-    } else {
-        listOf(
-            "Tekan tombol \"Izinkan akses\" di bawah",
-            "Setujui izin penyimpanan yang muncul"
-        )
-    }
-
+    val steps = listOf(
+        "Foto profil, banner, story, dan video disimpan di ruang privat HansAps",
+        "Pemilihan foto memakai pemilih dokumen Android; tidak perlu izin storage luas",
+        "Perubahan langsung tersimpan dan tetap ada setelah aplikasi dibuka kembali"
+    )
     Box(Modifier.fillMaxSize().padding(padding)) {
         Aurora(Modifier.fillMaxSize())
         Column(
@@ -76,14 +67,14 @@ internal fun __splitImpl_PermissionGate(padding: PaddingValues, onAllow: () -> U
             }
             Spacer(Modifier.height(28.dp))
             Text(
-                "Izin penyimpanan diperlukan",
+                "Penyimpanan profil lokal",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.ExtraBold,
                 textAlign = TextAlign.Center
             )
             Spacer(Modifier.height(10.dp))
             Text(
-                "Profil, story, dan video kamu disimpan langsung di Download/HansAps/.config/ — 100% lokal, tanpa server.",
+                "Profil, story, dan video kamu disimpan di ruang privat HansAps. Izin penyimpanan eksternal tidak diperlukan.",
                 color = colors.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center
@@ -102,7 +93,7 @@ internal fun __splitImpl_PermissionGate(padding: PaddingValues, onAllow: () -> U
             ) {
                 Icon(Icons.Default.Lock, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Izinkan akses", fontWeight = FontWeight.Bold)
+                Text("Lanjutkan", fontWeight = FontWeight.Bold)
             }
         }
     }

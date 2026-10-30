@@ -1,6 +1,7 @@
 package com.hansaps.localaccount
 
 import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.ExifInterface
@@ -115,8 +116,15 @@ internal fun __splitImpl_extractMotionVideo(ctx: Context, uri: Uri, out: File): 
     } else false
 } catch (e: Exception) { false }
 
+private fun retainDocumentReadAccess(ctx: Context, uri: Uri) {
+    runCatching {
+        ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+}
+
 internal fun RexProfileController.__splitImpl_addVideo(uri: Uri?) {
         if (uri == null) return
+        retainDocumentReadAccess(context, uri)
         scope.launch(Dispatchers.IO) {
             try {
                 RexPaths.video.mkdirs()
@@ -220,6 +228,7 @@ internal fun __splitImpl_videoFrameAt(ctx: Context, src: VSrc, ms: Long): Bitmap
 
 internal fun RexProfileController.__splitImpl_handlePick(uri: Uri?, target: CropTarget) {
         if (uri == null) return
+        retainDocumentReadAccess(context, uri)
         scope.launch {
             busy = "Membaca media…"
             val req = withContext(Dispatchers.IO) { buildCropReq(context, uri, target) }

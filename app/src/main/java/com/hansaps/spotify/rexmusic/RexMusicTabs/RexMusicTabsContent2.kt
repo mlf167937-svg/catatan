@@ -85,11 +85,11 @@ internal fun __splitImpl_PermissionCard(onClick: () -> Unit, modifier: Modifier 
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                "Izin penyimpanan dibutuhkan", style = MaterialTheme.typography.titleSmall,
+                "Penyimpanan aplikasi tidak tersedia", style = MaterialTheme.typography.titleSmall,
                 color = scheme.onErrorContainer
             )
             Text(
-                "Ketuk untuk mengizinkan akses ke ${RexOfflineManager.DISPLAY_PATH}",
+                "Unduhan offline disimpan di ${RexOfflineManager.DISPLAY_PATH}. Periksa ruang penyimpanan internal.",
                 style = MaterialTheme.typography.bodySmall, color = scheme.onErrorContainer
             )
         }

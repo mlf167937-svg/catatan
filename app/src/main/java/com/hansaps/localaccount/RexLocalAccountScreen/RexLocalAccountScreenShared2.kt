@@ -49,9 +49,17 @@ internal fun __splitImpl_downscale(b: Bitmap, maxDim: Int): Bitmap {
     return Bitmap.createScaledBitmap(b, (b.width * k).toInt().coerceAtLeast(1), (b.height * k).toInt().coerceAtLeast(1), true)
 }
 
-internal fun __splitImpl_hasStorageAccess(ctx: Context): Boolean =
-    if (Build.VERSION.SDK_INT >= 30) Environment.isExternalStorageManager()
-    else ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
+internal fun __splitImpl_hasStorageAccess(ctx: Context): Boolean = runCatching {
+    val dir = File(ctx.filesDir, "HansAps/.config")
+    if (!dir.isDirectory && !dir.mkdirs()) return@runCatching false
+    val probe = File(dir, ".write-check-${System.nanoTime()}")
+    try {
+        probe.outputStream().use { it.write(0x48) }
+        probe.isFile && probe.length() == 1L
+    } finally {
+        probe.delete()
+    }
+}.getOrDefault(false)
 
 internal fun __splitImpl_loadVideos(): List<File> =
     RexPaths.video.listFiles()
